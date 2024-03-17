@@ -9,6 +9,7 @@ import pandas as pd
 from hummingbot.client.performance import PerformanceMetrics
 from hummingbot.client.settings import AllConnectorSettings, GatewayConnectionSetting
 from hummingbot.connector.connector_base import ConnectorBase
+from hummingbot.connector.exchange_base import PriceType
 from hummingbot.connector.gateway.amm.gateway_evm_amm import GatewayEVMAMM
 from hummingbot.connector.gateway.gateway_price_shim import GatewayPriceShim
 from hummingbot.core.clock import Clock
@@ -58,11 +59,16 @@ class AmmArbStrategy(StrategyPyBase):
     _last_timestamp: float
     _status_report_interval: float
     _quote_eth_rate_fetch_loop_task: Optional[asyncio.Task]
-    _market_1_quote_eth_rate: None          # XXX (martin_kou): Why are these here?
-    _market_2_quote_eth_rate: None          # XXX (martin_kou): Why are these here?
+    _market_1_quote_eth_rate: None  # XXX (martin_kou): Why are these here?
+    _market_2_quote_eth_rate: None  # XXX (martin_kou): Why are these here?
     _rate_source: Optional[RateOracle]
     _cancel_outdated_orders_task: Optional[asyncio.Task]
     _gateway_transaction_cancel_interval: int
+
+    # todo make it configurable
+    # _base_token_rate_source = "binance"
+    # _base_token = "CAKE"
+    # _quote_token = "USDT"
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -72,6 +78,7 @@ class AmmArbStrategy(StrategyPyBase):
         return amm_logger
 
     def init_params(self,
+                    market_info_base_token_rate_source: MarketTradingPairTuple,
                     market_info_1: MarketTradingPairTuple,
                     market_info_2: MarketTradingPairTuple,
                     min_profitability: Decimal,
@@ -103,6 +110,7 @@ class AmmArbStrategy(StrategyPyBase):
         blockchain transactions that have not been included in a block (they are still in the mempool).
         :param rate_source: The rate source to use for conversion rate - (RateOracle or FixedRateSource) - default is FixedRateSource
         """
+        self._market_info_base_token_rate_source = market_info_base_token_rate_source
         self._market_info_1 = market_info_1
         self._market_info_2 = market_info_2
         self._min_profitability = min_profitability
@@ -128,6 +136,9 @@ class AmmArbStrategy(StrategyPyBase):
         self._gateway_transaction_cancel_interval = gateway_transaction_cancel_interval
 
         self._order_id_side_map: Dict[str, ArbProposalSide] = {}
+
+        self._base_asset = "CAKE"
+        self._quote_asset = "USDT"
 
     @property
     def all_markets_ready(self) -> bool:
@@ -217,7 +228,18 @@ class AmmArbStrategy(StrategyPyBase):
                 else []
             ),
             order_amount=self._order_amount,
+            market_info_base_token_rate_source=self._market_info_base_token_rate_source,
+            base_asset=self._base_asset,
+            quote_asset=self._quote_asset
         )
+
+        self.logger().info(f"{self._market_info_base_token_rate_source.market} {self._market_info_base_token_rate_source.base_asset} - {self._market_info_base_token_rate_source.quote_asset}")
+        # self.logger().info(f"rate1:{self._market_info_1.trading_pair} {self._market_info_1.market.get_price_by_type(self._market_info_1.trading_pair, PriceType.MidPrice)(self._market_info_1.trading_pair)}")
+        # self.logger().info(f"rate2:{self._market_info_2.trading_pair} {self._market_info_2.market.get_price_by_type(self._market_info_2.trading_pair, PriceType.MidPrice)(self._market_info_2.trading_pair)}")
+
+        self.logger().info(f"conversion rate:{self._market_info_base_token_rate_source.trading_pair} {self._market_info_base_token_rate_source.market.get_price_by_type(self._market_info_base_token_rate_source.trading_pair, PriceType.MidPrice)(self._market_info_base_token_rate_source.trading_pair)}")
+
+        self.logger().info(f"_all_arb_proposals: {self._all_arb_proposals}")
         profitable_arb_proposals: List[ArbProposal] = [
             t.copy() for t in self._all_arb_proposals
             if t.profit_pct(

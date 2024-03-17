@@ -27,12 +27,16 @@ def start(self):
     rate_oracle_enabled = amm_arb_config_map.get("rate_oracle_enabled").value
     quote_conversion_rate = amm_arb_config_map.get("quote_conversion_rate").value
 
-    self._initialize_markets([(connector_1, [market_1]), (connector_2, [market_2])])
+    # todo make dynamic
+    self._initialize_markets([("kucoin", ["BNB-USDT"]), (connector_1, [market_1]), (connector_2, [market_2])])
     base_1, quote_1 = market_1.split("-")
     base_2, quote_2 = market_2.split("-")
+    base_base_token_rate_source, quote_base_token_rate_source = "BNB-USDT".split("-")
 
     market_info_1 = MarketTradingPairTuple(self.markets[connector_1], market_1, base_1, quote_1)
     market_info_2 = MarketTradingPairTuple(self.markets[connector_2], market_2, base_2, quote_2)
+    market_info_base_token_rate_source = MarketTradingPairTuple(self.markets["kucoin"], "kucoin", base_base_token_rate_source, quote_base_token_rate_source)
+
     self.market_trading_pair_tuples = [market_info_1, market_info_2]
 
     if debug_price_shim:
@@ -66,7 +70,8 @@ def start(self):
         rate_source.add_rate(f"{quote_1}-{quote_2}", Decimal(str(1 / quote_conversion_rate)))   # reverse rate is already handled in FixedRateSource find_rate method.
 
     self.strategy = AmmArbStrategy()
-    self.strategy.init_params(market_info_1=market_info_1,
+    self.strategy.init_params(market_info_base_token_rate_source=market_info_base_token_rate_source,
+                              market_info_1=market_info_1,
                               market_info_2=market_info_2,
                               min_profitability=min_profitability,
                               order_amount=order_amount,
