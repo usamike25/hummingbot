@@ -11,6 +11,10 @@ from hummingbot.core.utils.async_utils import safe_gather
 from hummingbot.core.utils.estimate_fee import build_trade_fee
 from hummingbot.logger import HummingbotLogger
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
+from hummingbot.strategy.order_book_asset_price_delegate import (
+    OrderBookAssetPriceDelegate,
+    OrderBookInverseAssetPriceDelegate,
+)
 
 s_decimal_nan = Decimal("NaN")
 s_decimal_0 = Decimal("0")
@@ -62,6 +66,7 @@ class ArbProposal:
     """
     An arbitrage proposal which contains 2 sides of the proposal - one buy and one sell.
     """
+
     def __init__(self, first_side: ArbProposalSide, second_side: ArbProposalSide):
         if first_side.is_buy == second_side.is_buy:
             raise Exception("first_side and second_side must be on different side of buy and sell.")
@@ -81,8 +86,6 @@ class ArbProposal:
         Returns a profit in percentage value (e.g. 0.01 for 1% profitability)
         Assumes the base token is the same in both arbitrage sides
         """
-        if not rate_source:
-            rate_source = RateOracle.get_instance()
 
         buy_side: ArbProposalSide = self.first_side if self.first_side.is_buy else self.second_side
         sell_side: ArbProposalSide = self.first_side if not self.first_side.is_buy else self.second_side
@@ -90,7 +93,25 @@ class ArbProposal:
         quote_conversion_pair: str = f"{sell_side.market_info.quote_asset}-{buy_side.market_info.quote_asset}"
 
         sell_base_to_buy_base_rate: Decimal = Decimal(1)
-        sell_quote_to_buy_quote_rate: Decimal = rate_source.get_pair_rate(quote_conversion_pair)
+
+        # no conversion if both side base are in usd or usd equivalent
+        if 'USD' in sell_side.market_info.base_asset and 'USD' in buy_side.market_info.base_asset:
+            sell_quote_to_buy_quote_rate = Decimal(1)
+
+        # if we have an instance of OrderBookAssetPriceDelegate | OrderBookInverseAssetPriceDelegate us this as conversion
+        elif isinstance(rate_source, OrderBookAssetPriceDelegate) or isinstance(rate_source, OrderBookInverseAssetPriceDelegate):
+            mid_price = rate_source.get_mid_price()
+            base, quote = quote_conversion_pair.split("-")
+            if "USD" in base:
+                mid_price = Decimal(1) / mid_price
+            sell_quote_to_buy_quote_rate: Decimal = Decimal(mid_price)
+
+        # convert using normal rate oracle
+        elif not rate_source:
+            rate_source = RateOracle.get_instance()
+            sell_quote_to_buy_quote_rate: Decimal = rate_source.get_pair_rate(quote_conversion_pair)
+
+        sell_base_to_buy_base_rate: Decimal = Decimal(1)
 
         buy_fee_amount: Decimal = s_decimal_0
         sell_fee_amount: Decimal = s_decimal_0
@@ -125,21 +146,21 @@ class ArbProposal:
                     price=buy_side.quote_price,
                     order_amount=buy_side.amount,
                     token=buy_side.market_info.quote_asset,
-                    rate_source=rate_source
+                    rate_source=None
                 )
                 sell_fee_amount: Decimal = sell_trade_fee.fee_amount_in_token(
                     trading_pair=sell_side.market_info.trading_pair,
                     price=sell_side.quote_price,
                     order_amount=sell_side.amount,
                     token=sell_side.market_info.quote_asset,
-                    rate_source=rate_source
+                    rate_source=None
                 )
 
             buy_spent_net: Decimal = (buy_side.amount * buy_side.quote_price) + buy_fee_amount
             sell_gained_net: Decimal = (sell_side.amount * sell_side.quote_price) - sell_fee_amount
-            sell_gained_net_in_buy_quote_currency: Decimal = (
-                sell_gained_net * sell_quote_to_buy_quote_rate / sell_base_to_buy_base_rate
-            )
+            sell_gained_net_in_buy_quote_currency: Decimal = (sell_gained_net * sell_quote_to_buy_quote_rate / sell_base_to_buy_base_rate )
+
+
 
             result: Decimal = (
                 ((sell_gained_net_in_buy_quote_currency - buy_spent_net) / buy_spent_net)

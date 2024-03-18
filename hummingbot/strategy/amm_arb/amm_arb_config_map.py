@@ -37,14 +37,14 @@ def market_1_prompt() -> str:
     connector = amm_arb_config_map.get("connector_1").value
     example = AllConnectorSettings.get_example_pairs().get(connector)
     return "Enter the token trading pair you would like to trade on %s%s >>> " \
-           % (connector, f" (e.g. {example})" if example else "")
+        % (connector, f" (e.g. {example})" if example else "")
 
 
 def market_2_prompt() -> str:
     connector = amm_arb_config_map.get("connector_2").value
     example = AllConnectorSettings.get_example_pairs().get(connector)
     return "Enter the token trading pair you would like to trade on %s%s >>> " \
-           % (connector, f" (e.g. {example})" if example else "")
+        % (connector, f" (e.g. {example})" if example else "")
 
 
 def order_amount_prompt() -> str:
@@ -138,19 +138,22 @@ amm_arb_config_map = {
         key="gateway_transaction_cancel_interval",
         prompt="After what time should blockchain transactions be cancelled if they are not included in a block? "
                "(this only affects decentralized exchanges) (Enter time in seconds) >>> ",
+        prompt_on_new=True,
         default=600,
         validator=lambda v: validate_int(v, min_value=1, inclusive=True),
         type_str="int"),
-    "rate_oracle_enabled": ConfigVar(
-        key="rate_oracle_enabled",
-        prompt="Do you want to use the rate oracle? (Yes/No) >>> ",
-        default=True,
+    "dex_orders_only": ConfigVar(
+        key="dex_orders_only",
+        prompt="Do you want to place DEX orders only to make sure the DEX follows the CEX price? >>> ",
+        prompt_on_new=True,
+        default=False,
         validator=validate_bool,
         type_str="bool"),
-    "quote_conversion_rate": ConfigVar(
-        key="quote_conversion_rate",
-        prompt="What is the fixed_rate used to convert quote assets? >>> ",
-        default=Decimal("1"),
-        validator=lambda v: validate_decimal(v),
-        type_str="decimal"),
+    "min_required_quote_balance": ConfigVar(
+        key="min_required_quote_balance",
+        prompt="Minimum required quote balance to keep in both exchanges that cannot be touched by the arbitrage strategy >>> ",
+        prompt_on_new=True,
+        default=Decimal("100"),
+        type_str="decimal")
+
 }
