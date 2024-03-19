@@ -98,8 +98,8 @@ class ArbProposal:
         if 'USD' in sell_side.market_info.base_asset and 'USD' in buy_side.market_info.base_asset:
             sell_quote_to_buy_quote_rate = Decimal(1)
 
-        # if we have an instance of OrderBookAssetPriceDelegate | OrderBookInverseAssetPriceDelegate us this as conversion
-        elif isinstance(rate_source, OrderBookAssetPriceDelegate) or isinstance(rate_source, OrderBookInverseAssetPriceDelegate):
+        # if we have an instance of OrderBookAssetPriceDelegate  us this as conversion
+        elif isinstance(rate_source, OrderBookAssetPriceDelegate):
             mid_price = rate_source.get_mid_price()
 
             quote_conversion_base, quote_conversion_quote = quote_conversion_pair.split("-")
@@ -149,7 +149,7 @@ class ArbProposal:
                     price=buy_side.quote_price,
                     order_amount=buy_side.amount,
                     token=buy_side.market_info.quote_asset,
-                    rate_source=None
+                    rate_source=None # todo change to rate oracle and implement get rate
                 )
                 sell_fee_amount: Decimal = sell_trade_fee.fee_amount_in_token(
                     trading_pair=sell_side.market_info.trading_pair,
