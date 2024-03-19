@@ -101,9 +101,12 @@ class ArbProposal:
         # if we have an instance of OrderBookAssetPriceDelegate | OrderBookInverseAssetPriceDelegate us this as conversion
         elif isinstance(rate_source, OrderBookAssetPriceDelegate) or isinstance(rate_source, OrderBookInverseAssetPriceDelegate):
             mid_price = rate_source.get_mid_price()
-            base, quote = quote_conversion_pair.split("-")
-            if "USD" in base:
-                mid_price = Decimal(1) / mid_price
+
+            quote_conversion_base, quote_conversion_quote = quote_conversion_pair.split("-")
+            rate_source_base, rate_source_quote = rate_source.trading_pair.split("-")
+            if quote_conversion_base == rate_source_quote:
+                mid_price = Decimal(1) / mid_price # get inverse
+
             sell_quote_to_buy_quote_rate: Decimal = Decimal(mid_price)
 
         # convert using normal rate oracle

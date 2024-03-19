@@ -231,10 +231,9 @@ class AmmArbStrategy(StrategyPyBase):
             order_amount=self._order_amount,
         )
 
-        self.logger().info(f"_market_info_1: {self._market_info_1.market.display_name}, {self._market_info_1.trading_pair}")
-        self.logger().info(f"_market_info_2: {self._market_info_2.market.display_name}, {self._market_info_2.trading_pair}")
-
-        self.logger().info(f"_conversion_asset_price_delegate:{self._conversion_asset_price_delegate.market.display_name} {self._conversion_asset_price_delegate.trading_pair}, {self._conversion_asset_price_delegate.get_mid_price()}")
+        #self.logger().info(f"_market_info_1: {self._market_info_1.market.display_name}, {self._market_info_1.trading_pair}")
+        #self.logger().info(f"_market_info_2: {self._market_info_2.market.display_name}, {self._market_info_2.trading_pair}")
+        #self.logger().info(f"_conversion_asset_price_delegate:{self._conversion_asset_price_delegate.market.display_name} {self._conversion_asset_price_delegate.trading_pair}, {self._conversion_asset_price_delegate.get_mid_price()}")
         profitable_arb_proposals: List[ArbProposal] = [
             t.copy() for t in self._all_arb_proposals
             if t.profit_pct(

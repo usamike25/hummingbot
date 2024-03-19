@@ -15,7 +15,6 @@ from hummingbot.strategy.order_book_asset_price_delegate import (
 
 wrapped_tokens = ['WBNB', 'WETH', 'WBTC', 'WNXM', 'WMATIC', 'WHT', 'WCRO']
 
-
 def normalize_wrapped_token(token):
     if token in wrapped_tokens:
         return token[1:]
@@ -58,18 +57,13 @@ def start(self):
     conversion_asset_price_delegate = None
 
     # normalize for wrapped tokens
-    print(f"base_1: {base_1}, quote_1: {quote_1}")
-    print(f"base_2: {base_2}, quote_1: {quote_2}")
-
-    conversion_pair: str = f"{quote_1}-{quote_2}"
-    print(f"conversion_pair: {quote_1}-{quote_2}")
+    conversion_pair: str = f"{normalize_wrapped_token(quote_1)}-{normalize_wrapped_token(quote_2)}"
+    print(f"conversion_pair: {conversion_pair}")
 
     # create conversion_asset_price_delegate
     ext_market = create_paper_trade_market('binance', self.client_config_map, [conversion_pair])
     self.markets['binance']: ExchangeBase = ext_market
     conversion_asset_price_delegate = OrderBookAssetPriceDelegate(ext_market, conversion_pair)
-
-
 
     if debug_price_shim:
         amm_market_info: MarketTradingPairTuple = market_info_1
