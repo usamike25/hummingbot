@@ -241,6 +241,10 @@ class AmmArbStrategy(StrategyPyBase):
                 account_for_fee=True,
             ) >= self._min_profitability
         ]
+
+
+        self.logger().info(f"_all_arb_proposals: {self._all_arb_proposals}")
+
         if len(profitable_arb_proposals) == 0:
             if self._last_no_arb_reported < self.current_timestamp - 20.:
                 self.logger().info("No arbitrage opportunity.\n" +
@@ -249,6 +253,9 @@ class AmmArbStrategy(StrategyPyBase):
             return
         await self.apply_slippage_buffers(profitable_arb_proposals)
         self.apply_budget_constraint(profitable_arb_proposals)
+
+        return  # todo remove
+
         await self.execute_arb_proposals(profitable_arb_proposals)
 
     async def apply_gateway_transaction_cancel_interval(self):

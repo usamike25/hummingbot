@@ -49,3 +49,4 @@ quote_conversion_rate: 1
 # todo: format
 dex_orders_only: false
 min_required_quote_balance: 0.0
+arb_token: null

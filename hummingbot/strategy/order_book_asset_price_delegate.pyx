@@ -29,6 +29,9 @@ cdef class OrderBookAssetPriceDelegate(AssetPriceDelegate):
     def trading_pair(self) -> str:
         return self._trading_pair
 
+    def get_pair_rate(self, pair) -> Decimal:
+        return self.get_price_by_type(PriceType.MidPrice)
+
 cdef class OrderBookInverseAssetPriceDelegate(AssetPriceDelegate):
     def __init__(self, direct_delegate: OrderBookAssetPriceDelegate):
         super().__init__()

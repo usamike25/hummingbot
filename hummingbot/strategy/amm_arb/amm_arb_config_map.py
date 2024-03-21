@@ -52,6 +52,22 @@ def order_amount_prompt() -> str:
     base_asset, quote_asset = trading_pair.split("-")
     return f"What is the amount of {base_asset} per order? >>> "
 
+# def fixed_base_conversion_rate_prompt() -> str:
+#     arb_asset = amm_arb_config_map["arb_asset"].value
+#     market_1 = amm_arb_config_map["market_1"].value
+#     market_2 = amm_arb_config_map["market_2"].value
+#     base1, quote1 = market_1.split("-")
+#     base2, quote2 = market_2.split("-")
+#     if assets_equality(base1, base2) and assets_equality(arb_asset, base2):
+#         return f"fixed {base1}-{base2} rate? "
+#     elif assets_equality(base1, quote2) and assets_equality(arb_asset, quote2):
+#         return f"fixed {base1}-{quote2} rate? "
+#     elif assets_equality(quote1, base2) and assets_equality(arb_asset, base2):
+#         return f"fixed {quote1}-{base2} rate? "
+#     elif assets_equality(quote1, quote2) and assets_equality(arb_asset, quote2):
+#         return f"fixed {quote1}-{quote2} rate? "
+
+
 
 amm_arb_config_map = {
     "strategy": ConfigVar(
@@ -82,6 +98,26 @@ amm_arb_config_map = {
         prompt_on_new=True,
         validator=market_2_validator,
         on_validated=market_2_on_validated),
+
+
+
+    "arb_asset": ConfigVar(
+        key="arb_asset",
+        prompt="Specify the asset for which you wish to calculate arbitrage >>> ",
+        prompt_on_new=True,
+        type_str="str"),
+    #
+    # "fixed_quote_conversion_rate": ConfigVar(
+    #     key="fixed_quote_conversion_rate",
+    #     prompt=fixed_base_conversion_rate_prompt,
+    #     prompt_on_new=True,
+    #     default=Decimal("100"),
+    #     type_str="decimal"),
+    #
+    #
+
+
+
     "order_amount": ConfigVar(
         key="order_amount",
         prompt=order_amount_prompt,
@@ -155,5 +191,6 @@ amm_arb_config_map = {
         prompt_on_new=True,
         default=Decimal("100"),
         type_str="decimal")
+
 
 }

@@ -149,14 +149,14 @@ class ArbProposal:
                     price=buy_side.quote_price,
                     order_amount=buy_side.amount,
                     token=buy_side.market_info.quote_asset,
-                    rate_source=None # todo change to rate oracle and implement get rate
+                    rate_source=False # todo the rate source needs to be different, as the fees are calculated in the chain token
                 )
                 sell_fee_amount: Decimal = sell_trade_fee.fee_amount_in_token(
                     trading_pair=sell_side.market_info.trading_pair,
                     price=sell_side.quote_price,
                     order_amount=sell_side.amount,
                     token=sell_side.market_info.quote_asset,
-                    rate_source=None
+                    rate_source=False
                 )
 
             buy_spent_net: Decimal = (buy_side.amount * buy_side.quote_price) + buy_fee_amount
