@@ -13,6 +13,8 @@ market_1: null
 connector_2: null
 market_2: null
 
+arb_asset: null
+
 order_amount: null
 
 # Minimum profitability target required to place an order
@@ -46,7 +48,5 @@ rate_oracle_enabled: true
 # What is the fixed_rate used to convert quote assets?
 quote_conversion_rate: 1
 
-# todo: format
 dex_orders_only: false
 min_required_quote_balance: 0.0
-arb_token: null

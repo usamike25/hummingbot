@@ -9,28 +9,7 @@ from .data_types import ArbProposal, ArbProposalSide, TokenAmount
 
 s_decimal_nan = Decimal("NaN")
 
-asset_equality_map = {"BTC": ("BTC", "WBTC"),
-                      "ETH": ("ETH", "WETH"),
-                      "BNB": ("BNB", "WBNB"),
-                      "NXM": ("NXM", "WNXM"),
-                      "MATIC": ("MATIC", "WMATIC"),
-                      "HT": ("HT", "WHT"),
-                      "TELOS": ("TELOS", "WTELOS")}
-def assets_equality(asset1, asset2):
-    if asset1 == asset2:
-        return True
-    for _, eq_set in asset_equality_map.items():
-        if asset1 in eq_set and asset2 in eq_set:
-            return True
-    return False
 
-def get_basis_asset(asset):
-    if asset in asset_equality_map.keys():
-        return asset
-    for basis_asset, eq_set in asset_equality_map.items():
-        if asset in eq_set:
-            return basis_asset
-    return None
 
 class TradeDirection(Enum):
     BUY = 1

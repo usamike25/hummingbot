@@ -135,6 +135,8 @@ class AmmArbStrategy(StrategyPyBase):
         self._dex_orders_only = dex_orders_only
         self._min_required_quote_balance = min_required_quote_balance
 
+        self._order_id_to_exchange = {}
+
     @property
     def all_markets_ready(self) -> bool:
         return self._all_markets_ready
@@ -231,9 +233,13 @@ class AmmArbStrategy(StrategyPyBase):
             order_amount=self._order_amount,
         )
 
-        #self.logger().info(f"_market_info_1: {self._market_info_1.market.display_name}, {self._market_info_1.trading_pair}")
-        #self.logger().info(f"_market_info_2: {self._market_info_2.market.display_name}, {self._market_info_2.trading_pair}")
-        #self.logger().info(f"_conversion_asset_price_delegate:{self._conversion_asset_price_delegate.market.display_name} {self._conversion_asset_price_delegate.trading_pair}, {self._conversion_asset_price_delegate.get_mid_price()}")
+        # test rates
+        # self.logger().info(f"USDT-USDT: {self._conversion_asset_price_delegate.get_mid_price('USDT-USDT')}")
+        # self.logger().info(f"BNB-ETH: {self._conversion_asset_price_delegate.get_mid_price('BNB-ETH')}")
+        # self.logger().info(f"ETH-BNB: {self._conversion_asset_price_delegate.get_mid_price('ETH-BNB')}")
+        # self.logger().info(f"USDT-ETH: {self._conversion_asset_price_delegate.get_mid_price('USDT-ETH')}")
+        # self.logger().info(f"BNB-USDT: {self._conversion_asset_price_delegate.get_mid_price('BNB-USDT')}")
+
         profitable_arb_proposals: List[ArbProposal] = [
             t.copy() for t in self._all_arb_proposals
             if t.profit_pct(
@@ -241,9 +247,6 @@ class AmmArbStrategy(StrategyPyBase):
                 account_for_fee=True,
             ) >= self._min_profitability
         ]
-
-
-        self.logger().info(f"_all_arb_proposals: {self._all_arb_proposals}")
 
         if len(profitable_arb_proposals) == 0:
             if self._last_no_arb_reported < self.current_timestamp - 20.:
@@ -361,6 +364,8 @@ class AmmArbStrategy(StrategyPyBase):
                         arb_side.amount,
                         arb_side.order_price
                     )
+                    self._order_id_to_exchange[order_id] = arb_side.market_info.market.display_name  # must be deleted after its execution
+
 
                     self._order_id_side_map.update({
                         order_id: arb_side

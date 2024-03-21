@@ -10,11 +10,8 @@ from hummingbot.core.rate_oracle.rate_oracle import RateOracle
 from hummingbot.core.utils.async_utils import safe_gather
 from hummingbot.core.utils.estimate_fee import build_trade_fee
 from hummingbot.logger import HummingbotLogger
+from hummingbot.strategy.amm_arb.rate_conversion import RateConversionOracle
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
-from hummingbot.strategy.order_book_asset_price_delegate import (
-    OrderBookAssetPriceDelegate,
-    OrderBookInverseAssetPriceDelegate,
-)
 
 s_decimal_nan = Decimal("NaN")
 s_decimal_0 = Decimal("0")
@@ -94,22 +91,9 @@ class ArbProposal:
 
         sell_base_to_buy_base_rate: Decimal = Decimal(1)
 
-        # no conversion if both side base are in usd or usd equivalent
-        if 'USD' in sell_side.market_info.base_asset and 'USD' in buy_side.market_info.base_asset:
-            sell_quote_to_buy_quote_rate = Decimal(1)
-
-        # if we have an instance of OrderBookAssetPriceDelegate  us this as conversion
-        elif isinstance(rate_source, OrderBookAssetPriceDelegate):
-            mid_price = rate_source.get_mid_price()
-
-            quote_conversion_base, quote_conversion_quote = quote_conversion_pair.split("-")
-            rate_source_base, rate_source_quote = rate_source.trading_pair.split("-")
-            if quote_conversion_base == rate_source_quote:
-                mid_price = Decimal(1) / mid_price # get inverse
-
+        if isinstance(rate_source, RateConversionOracle):
+            mid_price = rate_source.get_mid_price(quote_conversion_pair)
             sell_quote_to_buy_quote_rate: Decimal = Decimal(mid_price)
-
-        # convert using normal rate oracle
         elif not rate_source:
             rate_source = RateOracle.get_instance()
             sell_quote_to_buy_quote_rate: Decimal = rate_source.get_pair_rate(quote_conversion_pair)
@@ -149,14 +133,14 @@ class ArbProposal:
                     price=buy_side.quote_price,
                     order_amount=buy_side.amount,
                     token=buy_side.market_info.quote_asset,
-                    rate_source=False # todo the rate source needs to be different, as the fees are calculated in the chain token
+                    rate_source=rate_source # todo the rate source needs to be different, as the fees are calculated in the chain token
                 )
                 sell_fee_amount: Decimal = sell_trade_fee.fee_amount_in_token(
                     trading_pair=sell_side.market_info.trading_pair,
                     price=sell_side.quote_price,
                     order_amount=sell_side.amount,
                     token=sell_side.market_info.quote_asset,
-                    rate_source=False
+                    rate_source=rate_source
                 )
 
             buy_spent_net: Decimal = (buy_side.amount * buy_side.quote_price) + buy_fee_amount

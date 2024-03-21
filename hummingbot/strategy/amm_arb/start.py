@@ -1,19 +1,15 @@
+import asyncio
 from decimal import Decimal
 from typing import cast
 
-from hummingbot.connector.exchange.paper_trade import create_paper_trade_market
 from hummingbot.connector.gateway.amm.gateway_evm_amm import GatewayEVMAMM
 from hummingbot.connector.gateway.common_types import Chain
 from hummingbot.connector.gateway.gateway_price_shim import GatewayPriceShim
-from hummingbot.core.utils.trading_pair_fetcher import TradingPairFetcher
+from hummingbot.core.utils.async_utils import call_sync
 from hummingbot.strategy.amm_arb.amm_arb import AmmArbStrategy
 from hummingbot.strategy.amm_arb.amm_arb_config_map import amm_arb_config_map
-from hummingbot.strategy.amm_arb.utils import assets_equality, get_basis_asset
+from hummingbot.strategy.amm_arb.rate_conversion import RateConversionOracle, assets_equality, get_basis_asset
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
-from hummingbot.strategy.order_book_asset_price_delegate import (
-    OrderBookAssetPriceDelegate,
-    OrderBookInverseAssetPriceDelegate,
-)
 
 
 def start(self):
@@ -36,7 +32,8 @@ def start(self):
     base_1, quote_1 = market_1.split("-")
     base_2, quote_2 = market_2.split("-")
 
-    # move arb_asset to the base
+    # move arb_asset to the base on both markets
+    arb_asset = get_basis_asset(arb_asset)
     if not assets_equality(arb_asset, base_1):
         base_1, quote_1 = quote_1, base_1
         market_1 = f"{base_1}-{quote_1}"
@@ -54,23 +51,31 @@ def start(self):
     self.market_trading_pair_tuples = [market_info_1, market_info_2]
 
     # create conversion_asset_price_delegate
-    conversion_asset_price_delegate = None
     conversion_pair_base = get_basis_asset(quote_1)
     conversion_pair_quote = get_basis_asset(quote_2)
-    conversion_pair: str = f"{conversion_pair_base}-{conversion_pair_quote}"
-    print(f"conversion_pair: {conversion_pair}")
+    # conversion_pair: str = f"{conversion_pair_base}-{conversion_pair_quote}"
 
-    trading_pair_fetcher: TradingPairFetcher = TradingPairFetcher.get_instance()
-    if trading_pair_fetcher.ready:
-        trading_pairs = trading_pair_fetcher.trading_pairs.get(exchange, [])
-        if len(trading_pairs) == 0 or conversion_pair not in trading_pairs:
-            # todo if the pair is for example ETH-XXX and it does not exist create a synthetic market with ETH-USDT and XXX-USDT
-            raise ValueError(f"Trading pair '{conversion_pair}' not found for exchange '{exchange}'.")
+    asset_set = set()
+    asset_set.add(base_1)
+    asset_set.add(base_2)
+    asset_set.add(quote_1)
+    asset_set.add(quote_2)
 
-    ext_market = create_paper_trade_market('binance', self.client_config_map, [conversion_pair])
-    self.markets['binance']: ExchangeBase = ext_market
-    conversion_asset_price_delegate = OrderBookAssetPriceDelegate(ext_market, conversion_pair)
+    # get native token of the chain and add it to asset_set, this is needed for the fee calculation
+    # todo grab native chain token from the chain info
+    for market_info in self.market_trading_pair_tuples:
+        if isinstance(market_info.market, GatewayEVMAMM):
+            if market_info.market.chain == "binance-smart-chain":
+                asset_set.add("BNB")
+            if market_info.market.chain == "etherum":
+                asset_set.add("ETH")
 
+    paper_trade_market = "binance"
+    conversion_asset_price_delegate = RateConversionOracle(asset_set, self.client_config_map, paper_trade_market)
+
+    # add to markets
+    for ex, market in conversion_asset_price_delegate.markets.items():
+        self.markets[ex] = market
 
     if debug_price_shim:
         amm_market_info: MarketTradingPairTuple = market_info_1
