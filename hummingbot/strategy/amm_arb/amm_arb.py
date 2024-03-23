@@ -234,10 +234,13 @@ class AmmArbStrategy(StrategyPyBase):
         )
 
         # test rates
-        # self.logger().info(f"USDT-USDT: {self._conversion_asset_price_delegate.get_mid_price('USDT-USDT')}")
-        # self.logger().info(f"BNB-ETH: {self._conversion_asset_price_delegate.get_mid_price('BNB-ETH')}")
-        # self.logger().info(f"ETH-BNB: {self._conversion_asset_price_delegate.get_mid_price('ETH-BNB')}")
-        # self.logger().info(f"USDT-ETH: {self._conversion_asset_price_delegate.get_mid_price('USDT-ETH')}")
+        # self.logger().info(f"USDT-DAI: {self._conversion_asset_price_delegate.get_mid_price('USDT-DAI')}")
+        # self.logger().info(f"DAI-USDT: {self._conversion_asset_price_delegate.get_mid_price('DAI-USDT')}")
+        # self.logger().info(f"XXX-XXX: {self._conversion_asset_price_delegate.get_mid_price('XXX-XXX')}")
+        # self.logger().info(f"YYY-XXX: {self._conversion_asset_price_delegate.get_mid_price('YYY-XXX')}")
+        # self.logger().info(f"BNB-ADA: {self._conversion_asset_price_delegate.get_mid_price('BNB-ADA')}")
+        # self.logger().info(f"ADA-BNB: {self._conversion_asset_price_delegate.get_mid_price('ADA-BNB')}")
+        # self.logger().info(f"USDT-ADA: {self._conversion_asset_price_delegate.get_mid_price('USDT-ADA')}")
         # self.logger().info(f"BNB-USDT: {self._conversion_asset_price_delegate.get_mid_price('BNB-USDT')}")
 
         profitable_arb_proposals: List[ArbProposal] = [

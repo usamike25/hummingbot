@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from hummingbot.connector.exchange.paper_trade import create_paper_trade_market
 from hummingbot.connector.exchange_base import ExchangeBase
@@ -44,6 +44,7 @@ class RateConversionOracle:
         self._paper_trade_market = paper_trade_market
         self._asset_set = asset_set
         self._rates = {}
+        self._fixed_rates = {}
         self._trading_pair_fetcher = TradingPairFetcher.get_instance()
         self._markets = {}
         self._client_config_map = client_config_map
@@ -61,20 +62,41 @@ class RateConversionOracle:
     def add_asset_price_delegate(self, asset):
         """Add an OrderBookAssetPriceDelegate to self._rates"""
         asset = get_basis_asset(asset)  # convert WBTC to BTC for the exchange
-        self._rates[f"{asset}-USDT"] = self.get_asset_price_delegate(asset)
+        asset_price_delegate = self.get_asset_price_delegate(asset)
+        self._rates[f"{asset}-USDT"] = asset_price_delegate
+        return {f"{asset}-USDT": asset_price_delegate}
+
+    def add_fixed_asset_price_delegate(self, pair, rate):
+        """Add a fixed rate for a given pair to self._fixed_rates"""
+        if isinstance(rate, Decimal):
+            self._fixed_rates[pair] = rate
+        elif isinstance(rate, float) or isinstance(rate, int):
+            self._fixed_rates[pair] = Decimal(str(rate))
+        elif isinstance(rate, str):
+            try:
+                rate = Decimal(rate)
+                self._fixed_rates[pair] = Decimal(rate)
+            except InvalidOperation:
+                raise ValueError(f"Cannot convert '{rate}' to Decimal.")
+        else:
+            raise ValueError(f"rate {rate} is not in Decimal or int or float")
 
     def get_asset_price_delegate(self, asset):
         """Fetches the price delegate for a given asset."""
         conversion_pair = f"{asset}-USDT"
         base, quote = conversion_pair.split("-")
+        inverse_conversion_pair = f"{quote}-{base}"
         if base == quote:
             return
 
         if self._trading_pair_fetcher.ready:
             trading_pairs = self._trading_pair_fetcher.trading_pairs.get(self._paper_trade_market, [])
-            if len(trading_pairs) == 0 or conversion_pair not in trading_pairs:
-                raise ValueError(f"Trading pair '{conversion_pair}' not found for exchange '{self._paper_trade_market}'.")
+            if conversion_pair not in trading_pairs:
+                conversion_pair = inverse_conversion_pair
+                if inverse_conversion_pair not in trading_pairs:
+                    raise ValueError(f"Trading pair '{conversion_pair}' not found for exchange '{self._paper_trade_market}'.")
 
+        # todo why paper_trade_market
         ext_market = create_paper_trade_market(self._paper_trade_market, self._client_config_map, [conversion_pair])
         self._markets[conversion_pair]: ExchangeBase = ext_market
         conversion_asset_price_delegate = OrderBookAssetPriceDelegate(ext_market, conversion_pair)
@@ -98,29 +120,32 @@ class RateConversionOracle:
         base, quote = quote, base
         pair = base + "-" + quote
         if pair in self._rates:
-            return 1/self._rates[pair].get_mid_price()
+            return 1 / self._rates[pair].get_mid_price()
         elif assets_equality(base, quote):
             return Decimal(1)
         else:
             raise ValueError(f"no OrderBookAssetPriceDelegate exists for pair '{pair}'.")
+
     def get_cross_pair_price(self, pair):
         """Calculates the cross pair price for two assets."""
 
         # convert to basis asset -> WBTC to BTC
         base, quote = pair.split("-")
         base, quote = get_basis_asset(base), get_basis_asset(quote)
+
         pair = base + "-" + quote
         reverse_pair = quote + "-" + base
 
+        for rate_dict in [self._fixed_rates, self._rates]:
+            if pair in rate_dict:
+                return rate_dict[pair] if rate_dict == self._fixed_rates else rate_dict[pair].get_mid_price()
+            if reverse_pair in rate_dict:
+                return (1 / rate_dict[reverse_pair]) if rate_dict == self._fixed_rates else (1 / rate_dict[reverse_pair].get_mid_price())
+
         if assets_equality(base, quote):
             return Decimal(1)
-        elif pair in self._rates.keys():
-            return self._rates[pair].get_mid_price()
-        elif reverse_pair in self._rates.keys():
-            return 1/self._rates[reverse_pair].get_mid_price()
 
-        base_rate_token = f"{base}-USDT"
-        quote_rate_token = f"{quote}-USDT"
+        base_rate_token, quote_rate_token = f"{base}-USDT", f"{quote}-USDT"
 
         if base_rate_token in self._rates and quote_rate_token in self._rates:
             base_price_in_usdt = self.get_rate_price_delegate(base_rate_token)

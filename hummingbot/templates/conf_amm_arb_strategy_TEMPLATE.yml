@@ -49,4 +49,11 @@ rate_oracle_enabled: true
 quote_conversion_rate: 1
 
 dex_orders_only: false
+
 min_required_quote_balance: 0.0
+
+fixed_conversion_rate_dict: null
+
+fixed_quote_conversion_rate: 0.0
+
+fixed_base_conversion_rate: 0.0

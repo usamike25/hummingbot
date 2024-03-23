@@ -28,9 +28,16 @@ def start(self):
 
     dex_orders_only = amm_arb_config_map.get("dex_orders_only").value
     min_required_quote_balance = amm_arb_config_map.get("min_required_quote_balance").value
+    fixed_base_conversion_rate = amm_arb_config_map.get("fixed_base_conversion_rate").value
+    fixed_quote_conversion_rate = amm_arb_config_map.get("fixed_quote_conversion_rate").value
+    # fixed_conversion_rate_dict = amm_arb_config_map.get("fixed_conversion_rate_dict").value
 
     base_1, quote_1 = market_1.split("-")
     base_2, quote_2 = market_2.split("-")
+
+    # check fixed rates pair
+    fixed_rate_quote_pair = f"{base_1 if not assets_equality(arb_asset, base_1) else quote_1}-{base_2 if not assets_equality(arb_asset, base_2) else quote_2}"
+    fixed_rate_base_pair = f"{base_1 if assets_equality(arb_asset, base_1) else quote_1}-{base_2 if assets_equality(arb_asset, base_2) else quote_2}"
 
     # move arb_asset to the base on both markets
     arb_asset = get_basis_asset(arb_asset)
@@ -50,11 +57,6 @@ def start(self):
     market_info_2 = MarketTradingPairTuple(self.markets[connector_2], market_2, base_2, quote_2)
     self.market_trading_pair_tuples = [market_info_1, market_info_2]
 
-    # create conversion_asset_price_delegate
-    conversion_pair_base = get_basis_asset(quote_1)
-    conversion_pair_quote = get_basis_asset(quote_2)
-    # conversion_pair: str = f"{conversion_pair_base}-{conversion_pair_quote}"
-
     asset_set = set()
     asset_set.add(base_1)
     asset_set.add(base_2)
@@ -72,6 +74,13 @@ def start(self):
 
     paper_trade_market = "binance"
     conversion_asset_price_delegate = RateConversionOracle(asset_set, self.client_config_map, paper_trade_market)
+
+    if Decimal(fixed_quote_conversion_rate) != Decimal("0"):
+        print(fixed_rate_quote_pair, fixed_quote_conversion_rate)
+        conversion_asset_price_delegate.add_fixed_asset_price_delegate(fixed_rate_quote_pair, Decimal(fixed_quote_conversion_rate))
+    if Decimal(fixed_base_conversion_rate) != Decimal("0"):
+        print(fixed_rate_base_pair, fixed_base_conversion_rate)
+        conversion_asset_price_delegate.add_fixed_asset_price_delegate(fixed_rate_base_pair, Decimal(fixed_base_conversion_rate))
 
     # add to markets
     for ex, market in conversion_asset_price_delegate.markets.items():
