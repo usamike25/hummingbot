@@ -93,6 +93,7 @@ def fixed_quote_conversion_rate_prompt() -> str:
     fixed_pair = get_fixed_pair(is_quote=False)
     return f"Would you like to set a fixed exchange rate for the pair {fixed_pair} ? Enter '0' for no, or specify the fixed rate directly. >>> "
 
+
 amm_arb_config_map = {
     "strategy": ConfigVar(
         key="strategy",
@@ -134,7 +135,6 @@ amm_arb_config_map = {
         key="fixed_conversion_rate_dict",
         prompt="",
         prompt_on_new=False,
-        #default=Decimal("0"),
         type_str="decimal"),
 
     "fixed_quote_conversion_rate": ConfigVar(

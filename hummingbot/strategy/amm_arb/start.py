@@ -1,11 +1,9 @@
-import asyncio
 from decimal import Decimal
 from typing import cast
 
 from hummingbot.connector.gateway.amm.gateway_evm_amm import GatewayEVMAMM
 from hummingbot.connector.gateway.common_types import Chain
 from hummingbot.connector.gateway.gateway_price_shim import GatewayPriceShim
-from hummingbot.core.utils.async_utils import call_sync
 from hummingbot.strategy.amm_arb.amm_arb import AmmArbStrategy
 from hummingbot.strategy.amm_arb.amm_arb_config_map import amm_arb_config_map
 from hummingbot.strategy.amm_arb.rate_conversion import RateConversionOracle, assets_equality, get_basis_asset

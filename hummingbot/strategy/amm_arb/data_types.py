@@ -142,9 +142,7 @@ class ArbProposal:
 
             buy_spent_net: Decimal = (buy_side.amount * buy_side.quote_price) + buy_fee_amount
             sell_gained_net: Decimal = (sell_side.amount * sell_side.quote_price) - sell_fee_amount
-            sell_gained_net_in_buy_quote_currency: Decimal = (sell_gained_net * sell_quote_to_buy_quote_rate / sell_base_to_buy_base_rate )
-
-
+            sell_gained_net_in_buy_quote_currency: Decimal = (sell_gained_net * sell_quote_to_buy_quote_rate / sell_base_to_buy_base_rate)
 
             result: Decimal = (
                 ((sell_gained_net_in_buy_quote_currency - buy_spent_net) / buy_spent_net)

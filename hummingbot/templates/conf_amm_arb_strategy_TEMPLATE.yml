@@ -62,3 +62,4 @@ fixed_quote_conversion_rate: 0.0
 
 # Used as a rate for converting base assets. Set to 0.0 if not needed. (best practice is to use the fixed_conversion_rate_dict and set fixed_base_conversion_rate to 0.0)
 fixed_base_conversion_rate: 0.0
+

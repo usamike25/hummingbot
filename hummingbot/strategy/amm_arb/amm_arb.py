@@ -367,7 +367,6 @@ class AmmArbStrategy(StrategyPyBase):
                     )
                     self._order_id_to_exchange[order_id] = arb_side.market_info.market.display_name  # must be deleted after its execution
 
-
                     self._order_id_side_map.update({
                         order_id: arb_side
                     })
