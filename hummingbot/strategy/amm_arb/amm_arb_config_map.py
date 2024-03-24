@@ -93,24 +93,6 @@ def fixed_quote_conversion_rate_prompt() -> str:
     fixed_pair = get_fixed_pair(is_quote=False)
     return f"Would you like to set a fixed exchange rate for the pair {fixed_pair} ? Enter '0' for no, or specify the fixed rate directly. >>> "
 
-
-# def fixed_base_conversion_rate_on_validated(value: str) -> None:
-#     base_1, quote_1 = amm_arb_config_map["market_1"].value.split("-")
-#     base_2, quote_2 = amm_arb_config_map["market_2"].value.split("-")
-#     arb_asset = amm_arb_config_map["arb_asset"].value
-#     b_1 = base_1 if not assets_equality(arb_asset, base_1) else quote_1
-#     b_2 = base_2 if not assets_equality(arb_asset, base_2) else quote_2
-#     amm_arb_config_map["fixed_conversion_rate_dict"].value[f"{b_1}-{b_2}"] = value
-#
-# def fixed_quote_conversion_rate_on_validated(value: str) -> None:
-#     base_1, quote_1 = amm_arb_config_map["market_1"].value.split("-")
-#     base_2, quote_2 = amm_arb_config_map["market_2"].value.split("-")
-#     arb_asset = amm_arb_config_map["arb_asset"].value
-#     b_1 = base_1 if assets_equality(arb_asset, base_1) else quote_1
-#     b_2 = base_2 if assets_equality(arb_asset, base_2) else quote_2
-#     amm_arb_config_map["fixed_conversion_rate_dict"].value[f"{b_1}-{b_2}"] = value
-
-
 amm_arb_config_map = {
     "strategy": ConfigVar(
         key="strategy",
@@ -140,7 +122,6 @@ amm_arb_config_map = {
         prompt_on_new=True,
         validator=market_2_validator,
         on_validated=market_2_on_validated),
-
     "arb_asset": ConfigVar(
         key="arb_asset",
         prompt="Specify the asset for which you wish to calculate arbitrage >>> ",
@@ -155,7 +136,6 @@ amm_arb_config_map = {
         prompt_on_new=False,
         #default=Decimal("0"),
         type_str="decimal"),
-        #),
 
     "fixed_quote_conversion_rate": ConfigVar(
         key="fixed_quote_conversion_rate",
