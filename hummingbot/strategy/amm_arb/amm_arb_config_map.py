@@ -148,12 +148,14 @@ amm_arb_config_map = {
         validator=arb_asset_validator,
         type_str="str"),
 
-    # "fixed_conversion_rate_dict": ConfigVar(
-    #     key="fixed_conversion_rate_dict",
-    #     prompt="",
-    #     required_if=lambda: False,
-    #     default={},
-    #     type_str="dict"),
+    # todo this is a temporary fix
+    "fixed_conversion_rate_dict": ConfigVar(
+        key="fixed_conversion_rate_dict",
+        prompt="",
+        prompt_on_new=False,
+        #default=Decimal("0"),
+        type_str="decimal"),
+        #),
 
     "fixed_quote_conversion_rate": ConfigVar(
         key="fixed_quote_conversion_rate",

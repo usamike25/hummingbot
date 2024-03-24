@@ -30,7 +30,7 @@ def start(self):
     min_required_quote_balance = amm_arb_config_map.get("min_required_quote_balance").value
     fixed_base_conversion_rate = amm_arb_config_map.get("fixed_base_conversion_rate").value
     fixed_quote_conversion_rate = amm_arb_config_map.get("fixed_quote_conversion_rate").value
-    # fixed_conversion_rate_dict = amm_arb_config_map.get("fixed_conversion_rate_dict").value
+    fixed_conversion_rate_dict = dict(amm_arb_config_map.get("fixed_conversion_rate_dict").value)
 
     base_1, quote_1 = market_1.split("-")
     base_2, quote_2 = market_2.split("-")
@@ -75,12 +75,13 @@ def start(self):
     paper_trade_market = "binance"
     conversion_asset_price_delegate = RateConversionOracle(asset_set, self.client_config_map, paper_trade_market)
 
+    # add fixed rates
     if Decimal(fixed_quote_conversion_rate) != Decimal("0"):
-        print(fixed_rate_quote_pair, fixed_quote_conversion_rate)
         conversion_asset_price_delegate.add_fixed_asset_price_delegate(fixed_rate_quote_pair, Decimal(fixed_quote_conversion_rate))
     if Decimal(fixed_base_conversion_rate) != Decimal("0"):
-        print(fixed_rate_base_pair, fixed_base_conversion_rate)
         conversion_asset_price_delegate.add_fixed_asset_price_delegate(fixed_rate_base_pair, Decimal(fixed_base_conversion_rate))
+    for pair, rate in fixed_conversion_rate_dict.items():
+        conversion_asset_price_delegate.add_fixed_asset_price_delegate(pair, Decimal(rate))
 
     # add to markets
     for ex, market in conversion_asset_price_delegate.markets.items():

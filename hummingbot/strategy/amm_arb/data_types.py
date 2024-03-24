@@ -89,16 +89,13 @@ class ArbProposal:
         base_conversion_pair: str = f"{sell_side.market_info.base_asset}-{buy_side.market_info.base_asset}"
         quote_conversion_pair: str = f"{sell_side.market_info.quote_asset}-{buy_side.market_info.quote_asset}"
 
-        sell_base_to_buy_base_rate: Decimal = Decimal(1)
-
         if isinstance(rate_source, RateConversionOracle):
-            mid_price = rate_source.get_mid_price(quote_conversion_pair)
-            sell_quote_to_buy_quote_rate: Decimal = Decimal(mid_price)
+            sell_quote_to_buy_quote_rate: Decimal = rate_source.get_mid_price(quote_conversion_pair)
+            sell_base_to_buy_base_rate: Decimal = rate_source.get_mid_price(base_conversion_pair)
         elif not rate_source:
             rate_source = RateOracle.get_instance()
             sell_quote_to_buy_quote_rate: Decimal = rate_source.get_pair_rate(quote_conversion_pair)
-
-        sell_base_to_buy_base_rate: Decimal = Decimal(1)
+            sell_base_to_buy_base_rate: Decimal = Decimal(1)
 
         buy_fee_amount: Decimal = s_decimal_0
         sell_fee_amount: Decimal = s_decimal_0
@@ -133,7 +130,7 @@ class ArbProposal:
                     price=buy_side.quote_price,
                     order_amount=buy_side.amount,
                     token=buy_side.market_info.quote_asset,
-                    rate_source=rate_source # todo the rate source needs to be different, as the fees are calculated in the chain token
+                    rate_source=rate_source
                 )
                 sell_fee_amount: Decimal = sell_trade_fee.fee_amount_in_token(
                     trading_pair=sell_side.market_info.trading_pair,

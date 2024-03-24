@@ -54,6 +54,15 @@ class RateConversionOracle:
     def markets(self):
         return self._markets
 
+    @property
+    def rates(self):
+        return self._rates
+
+    @property
+    def fixed_rates(self):
+        return self._fixed_rates
+
+
     def init_rates(self):
         """Initializes rates for the asset set."""
         for asset in self._asset_set:
