@@ -234,14 +234,14 @@ class AmmArbStrategy(StrategyPyBase):
         )
 
         # test rates
-        # self.logger().info(f"USDT-DAI: {self._conversion_asset_price_delegate.get_mid_price('USDT-DAI')}")
-        # self.logger().info(f"DAI-USDT: {self._conversion_asset_price_delegate.get_mid_price('DAI-USDT')}")
-        # self.logger().info(f"XXX-XXX: {self._conversion_asset_price_delegate.get_mid_price('XXX-XXX')}")
-        # self.logger().info(f"YYY-XXX: {self._conversion_asset_price_delegate.get_mid_price('YYY-XXX')}")
-        # self.logger().info(f"BNB-ADA: {self._conversion_asset_price_delegate.get_mid_price('BNB-ADA')}")
-        # self.logger().info(f"ADA-BNB: {self._conversion_asset_price_delegate.get_mid_price('ADA-BNB')}")
-        # self.logger().info(f"USDT-ADA: {self._conversion_asset_price_delegate.get_mid_price('USDT-ADA')}")
-        # self.logger().info(f"BNB-USDT: {self._conversion_asset_price_delegate.get_mid_price('BNB-USDT')}")
+        # self.logger().info(f"USDT-DAI: {self._conversion_asset_price_delegate.get_pair_rate('USDT-DAI')}")
+        # self.logger().info(f"DAI-USDT: {self._conversion_asset_price_delegate.get_pair_rate('DAI-USDT')}")
+        # self.logger().info(f"XXX-XXX: {self._conversion_asset_price_delegate.get_pair_rate('XXX-XXX')}")
+        # self.logger().info(f"YYY-XXX: {self._conversion_asset_price_delegate.get_pair_rate('YYY-XXX')}")
+        # self.logger().info(f"BNB-ADA: {self._conversion_asset_price_delegate.get_pair_rate('BNB-ADA')}")
+        # self.logger().info(f"ADA-BNB: {self._conversion_asset_price_delegate.get_pair_rate('ADA-BNB')}")
+        # self.logger().info(f"USDT-ADA: {self._conversion_asset_price_delegate.get_pair_rate('USDT-ADA')}")
+        # self.logger().info(f"BNB-USDT: {self._conversion_asset_price_delegate.get_pair_rate('BNB-USDT')}")
 
         profitable_arb_proposals: List[ArbProposal] = [
             t.copy() for t in self._all_arb_proposals
@@ -345,7 +345,8 @@ class AmmArbStrategy(StrategyPyBase):
             if not self._concurrent_orders_submission:
                 arb_proposal = self.prioritize_evm_exchanges(arb_proposal)
 
-            conversion_rate = self._conversion_asset_price_delegate.get_mid_price() if self._conversion_asset_price_delegate else Decimal(1)
+            # todo what conversion_rate to get here?
+            conversion_rate = Decimal(1)  # self._conversion_asset_price_delegate.get_pair_rate() if self._conversion_asset_price_delegate else Decimal(1)
 
             try:
                 self.logger().info(f"Found arbitrage opportunity!: {arb_proposal}, conversion rate {conversion_rate} or {Decimal(1) / conversion_rate}")
@@ -449,10 +450,7 @@ class AmmArbStrategy(StrategyPyBase):
         binance_rate = None
 
         if self._conversion_asset_price_delegate:
-            binance_rate = self._conversion_asset_price_delegate.get_mid_price()
-            base, quote = quotes_pair.split("-")
-            if "USD" in base:
-                binance_rate = Decimal(1) / binance_rate
+            binance_rate = self._conversion_asset_price_delegate.get_pair_rate(quotes_pair)
 
         data = [[quotes_pair, PerformanceMetrics.smart_round(self._rate_source.get_pair_rate(quotes_pair)), binance_rate]]
 
@@ -473,10 +471,7 @@ class AmmArbStrategy(StrategyPyBase):
             buy_price = await market.get_quote_price(trading_pair, True, self._order_amount)
             sell_price = await market.get_quote_price(trading_pair, False, self._order_amount)
 
-            if "USD" not in quote_asset and self._conversion_asset_price_delegate:
-                conversion_rate = self._conversion_asset_price_delegate.get_mid_price()
-            else:
-                conversion_rate = Decimal(1)
+            conversion_rate = self._conversion_asset_price_delegate.get_pair_rate(trading_pair)
 
             # check for unavailable price data
             buy_price = PerformanceMetrics.smart_round(Decimal(str(buy_price)), 8) if buy_price is not None else '-'
@@ -503,7 +498,7 @@ class AmmArbStrategy(StrategyPyBase):
         for market_info in [self._market_info_1, self._market_info_2]:
             if hasattr(market_info.market, "network_transaction_fee"):
                 transaction_fee: TokenAmount = getattr(market_info.market, "network_transaction_fee")
-                converted_transaction_fees = round(Decimal(transaction_fee.amount * self._conversion_asset_price_delegate.get_mid_price()), 5) if self._conversion_asset_price_delegate else "None"
+                converted_transaction_fees = round(Decimal(transaction_fee.amount * self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair)), 5) if self._conversion_asset_price_delegate else "None"
                 data.append([market_info.market.display_name, f"{transaction_fee.amount} {transaction_fee.token}", converted_transaction_fees])
 
         network_fees_df = pd.DataFrame(data=data, columns=columns)
@@ -554,7 +549,7 @@ class AmmArbStrategy(StrategyPyBase):
             log_msg += f" txHash: {order_completed_event.exchange_order_id}"
         self.log_with_clock(logging.INFO, log_msg)
 
-        conversion_rate = self._conversion_asset_price_delegate.get_mid_price() if self._conversion_asset_price_delegate else Decimal(1)
+        conversion_rate = self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair) if self._conversion_asset_price_delegate else Decimal(1)
         conversion_rate = conversion_rate if "USD" not in order_completed_event.quote_asset else Decimal(1)
 
         self.notify_hb_app_with_timestamp(
@@ -573,7 +568,7 @@ class AmmArbStrategy(StrategyPyBase):
             log_msg += f" txHash: {order_completed_event.exchange_order_id}"
         self.log_with_clock(logging.INFO, log_msg)
 
-        conversion_rate = self._conversion_asset_price_delegate.get_mid_price() if self._conversion_asset_price_delegate else Decimal(1)
+        conversion_rate = self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair) if self._conversion_asset_price_delegate else Decimal(1)
         conversion_rate = conversion_rate if "USD" not in order_completed_event.quote_asset else Decimal(1)
 
         self.notify_hb_app_with_timestamp(

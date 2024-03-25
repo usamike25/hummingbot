@@ -130,7 +130,7 @@ amm_arb_config_map = {
         validator=arb_asset_validator,
         type_str="str"),
 
-    # todo this is a temporary fix
+    # todo this could be donne differently
     "fixed_conversion_rate_dict": ConfigVar(
         key="fixed_conversion_rate_dict",
         prompt="",

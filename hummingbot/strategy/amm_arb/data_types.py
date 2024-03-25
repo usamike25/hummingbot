@@ -90,8 +90,8 @@ class ArbProposal:
         quote_conversion_pair: str = f"{sell_side.market_info.quote_asset}-{buy_side.market_info.quote_asset}"
 
         if isinstance(rate_source, RateConversionOracle):
-            sell_quote_to_buy_quote_rate: Decimal = rate_source.get_mid_price(quote_conversion_pair)
-            sell_base_to_buy_base_rate: Decimal = rate_source.get_mid_price(base_conversion_pair)
+            sell_quote_to_buy_quote_rate: Decimal = rate_source.get_pair_rate(quote_conversion_pair)
+            sell_base_to_buy_base_rate: Decimal = rate_source.get_pairF_rate(base_conversion_pair)
         elif not rate_source:
             rate_source = RateOracle.get_instance()
             sell_quote_to_buy_quote_rate: Decimal = rate_source.get_pair_rate(quote_conversion_pair)
