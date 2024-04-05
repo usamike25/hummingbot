@@ -1,0 +1,21 @@
+##########################################
+###   xemm strategy config   ###
+##########################################
+
+template_version: 1
+strategy: null
+
+# The following configurations are only required for the xemm arbitrage trading strategy
+
+# Connectors and markets parameters
+
+exchange_stats: null
+
+
+max_order_size_quote: null
+
+volatility_to_spread_multiplier: null
+
+idle_base_amount: null
+
+idle_quote_amount: null
