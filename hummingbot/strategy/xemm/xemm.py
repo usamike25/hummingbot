@@ -1,8 +1,8 @@
 import asyncio
-import decimal
 import logging
 import time
-from decimal import Decimal
+from collections import deque
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any, List
 
@@ -29,6 +29,7 @@ from hummingbot.core.event.events import (
     SellOrderCreatedEvent,
     TradeType,
 )
+from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.order_book_asset_price_delegate import OrderBookAssetPriceDelegate
@@ -108,6 +109,7 @@ class XEMMStrategy(StrategyPyBase):
                 if isinstance(value, float):
                     ex_dict[key] = Decimal(str(value))
 
+        # xemm multi variables
         self.status_ready = False
         self._all_markets_ready = False
         self.exchange_info = {}
@@ -135,35 +137,34 @@ class XEMMStrategy(StrategyPyBase):
     def active_limit_orders(self):
         return [(ex, order, order.client_order_id) for ex, order in self._sb_order_tracker.active_limit_orders]
 
-    def tick(self, timestamp: float):
+    def set_variables(self):
+        self.subscribe_to_orderbook_trade_event()
+        for exchange, token in self.markets.items():
+            self.stop_tracking_all_orders(exchange)
+            pair = list(token)[0]
+            base, quote = pair.split("-")
+            self.time_out_dict[exchange] = False
+            self.is_perp[exchange] = self.is_perpetual_exchange(exchange)
+            if exchange not in self.min_notional_size_dict.keys():
+                self.min_notional_size_dict[exchange] = self.connectors[exchange].trading_rules[pair].min_notional_size
+            self.min_os_size_dict[exchange] = self.connectors[exchange].trading_rules[pair].min_order_size
+            self.min_price_step[exchange] = self.connectors[exchange].trading_rules[pair].min_price_increment
+            self.latency_roundtrip[exchange] = deque(maxlen=10)  # store last X roundtrip times
+            self.volatility_indicator[exchange] = {}
+            self.volatility_indicator[exchange][pair] = VolatilityIndicator2(OrderBookAssetPriceDelegate(self.connectors[exchange], pair))
 
-        if not self._all_markets_ready:
-            self._all_markets_ready = all([market.ready for market in self.active_markets])
-            if not self._all_markets_ready:
-                # Markets not ready yet. Don't do anything.
-                self.logger().warning("Markets are not ready. No market making trades are permitted.")
-                return
-            else:
-                # Markets are ready, ok to proceed.
-                self.logger().info("Markets are ready.")
+            # self._base_asset_amount = self.connectors[exchange].get_available_balance(base)
 
-        # set variables
+        self.status_ready = True
+
+    def on_tick(self):
         if not self.status_ready:
-            self.subscribe_to_orderbook_trade_event()
-            for exchange, token in self.markets.items():
-                self.stop_tracking_all_orders(exchange)
-                pair = list(token)[0]
-                base, quote = pair.split("-")
-                self.time_out_dict[exchange] = False
-                self.is_perp[exchange] = self.is_perpetual_exchange(exchange)
-                if exchange not in self.min_notional_size_dict.keys():
-                    self.min_notional_size_dict[exchange] = self.connectors[exchange].trading_rules[pair].min_notional_size
-                self.min_os_size_dict[exchange] = self.connectors[exchange].trading_rules[pair].min_order_size
-                self.min_price_step[exchange] = self.connectors[exchange].trading_rules[pair].min_price_increment
-                self.latency_roundtrip[exchange] = 0
-                self.volatility_indicator[exchange] = {}
-                self.volatility_indicator[exchange][pair] = VolatilityIndicator2(OrderBookAssetPriceDelegate(self.connectors[exchange], pair))
-            self.status_ready = True
+            self.set_variables()
+
+        if not all([mkt.network_status is NetworkStatus.CONNECTED for mkt in [self.connectors[mkt] for mkt, _ in self.markets.items()]]):
+            self.logger().warning(f"WARNING: Some markets are not connected or are down at the moment. Market "
+                                  f"{[(mkt, self.connectors[mkt].network_status) for mkt, _ in self.markets.items()]}.")
+            return
 
         start_time = time.perf_counter()
 
@@ -175,6 +176,22 @@ class XEMMStrategy(StrategyPyBase):
 
         # place orders
         self.place_orders()
+
+        # check base asset drift
+        if self.current_timestamp > self._base_asset_amount_last_checked + 10:
+            self._base_asset_amount_last_checked = self.current_timestamp
+            base_amount = 0
+            for exchange, token in self.markets.items():
+                pair = list(token)[0]
+                base, quote = pair.split("-")
+                base_amount += self.connectors[exchange].get_balance(base)
+            if not self._base_asset_amount:
+                self._base_asset_amount = base_amount
+            if 0.5 < (abs(base_amount - self._base_asset_amount) / self._base_asset_amount) * 100:
+                msg = f"Base asset drift detected: {self._base_asset_amount} -> {base_amount}"
+                self.logger().info(msg)
+                self.notify_hb_app_with_timestamp(msg)
+            self._base_asset_amount = base_amount
 
         self.on_tick_runtime = ((time.perf_counter() - start_time) * 1000)
 
@@ -398,6 +415,9 @@ class XEMMStrategy(StrategyPyBase):
         possible_prices_list_bid = sorted(possible_prices_list_bid, key=lambda item: item[1], reverse=True)
         possible_prices_list_ask = sorted(possible_prices_list_ask, key=lambda item: item[1], reverse=False)
 
+        # self.logger().info(f"possible_prices_list_bid: {possible_prices_list_bid}")
+        # self.logger().info(f"possible_prices_list_ask: {possible_prices_list_ask}")
+
         # check if there is enough capital to hedge on the exchange
         for i in range(len(possible_prices_list_ask)):
             hedge_exchange_ask = possible_prices_list_ask[i][0]
@@ -424,7 +444,7 @@ class XEMMStrategy(StrategyPyBase):
                                             "hedge_exchange": hedge_exchange_ask,
                                             "order_id": None})
                         base_amount -= available_quote / hedge_price_ask
-            except decimal.InvalidOperation as e:
+            except InvalidOperation as e:
                 # log for deugg
                 self.logger().info(f"available_quote: {available_quote}")
                 self.logger().info(f"hedge_price_ask: {hedge_price_ask}")
@@ -565,6 +585,7 @@ class XEMMStrategy(StrategyPyBase):
 
         # cancel orders below min profit or after max order age
         for id, ex in place_cancel_dict.items():
+            # todo: KeyError if order got manually stop_tracking_order
             current_state = self.connectors[ex].in_flight_orders[id].current_state
             if current_state != OrderState.PENDING_CANCEL:
                 trading_pair = list(self.markets[ex])[0]
@@ -628,7 +649,7 @@ class XEMMStrategy(StrategyPyBase):
             return adjusted_vol * self.volatility_to_spread_multiplier
 
     def is_above_min_order_size(self, exchange, amount, price):
-        return True if self.min_notional_size_dict[exchange] + Decimal(2) < (amount * price) and self.min_os_size_dict[exchange] < amount else False
+        return True if self.min_notional_size_dict[exchange] * Decimal(1.1) < (amount * price) and self.min_os_size_dict[exchange] < amount else False
 
     def check_balances_and_quotes_perp(self, exchange, pair):
         base, quote = pair.split("-")
@@ -793,13 +814,13 @@ class XEMMStrategy(StrategyPyBase):
             self.ids_to_cancel.discard(order_id)
             return
 
-        if current_state == OrderState.PENDING_CANCEL:
-            self.logger().info(f"async_cancel: Abort cancellation since current_state is PENDING_CANCEL for {order_id}:")
+        if current_state == OrderState.PENDING_CANCEL or current_state == OrderState.FILLED:
+            self.logger().info(f"async_cancel: Abort cancellation since current_state is {current_state} for {order_id}:")
             return
 
         # handle exchanges that don't handle cancel pending create:
-        specal_treatement_exchanges = ["ascend_ex", "mexc"]
-        if await_pending_create or (current_state == OrderState.PENDING_CREATE and (exchange in specal_treatement_exchanges or exchange_order_id is None)):
+        special_treatment_exchanges = ["ascend_ex", "mexc"]
+        if await_pending_create or (current_state == OrderState.PENDING_CREATE and (exchange in special_treatment_exchanges or exchange_order_id is None)):
 
             self.logger().info(f"async_cancel: Waiting for order creation event for {order_id}:")
 
@@ -891,7 +912,7 @@ class XEMMStrategy(StrategyPyBase):
 
         # cancel maker order on other exchange
         async_cancellation_tasks = []
-        for ex, order, order_id in self.active_limit_orders:
+        for ex, order, order_id in self.active_maker_limit_orders:
             if ex.display_name == hedge_exchange:
                 maker_order_on_hedge_exchange = self.connectors[ex.display_name].in_flight_orders[order_id]
                 maker_order_on_hedge_exchange_pair = maker_order_on_hedge_exchange.trading_pair
@@ -928,6 +949,8 @@ class XEMMStrategy(StrategyPyBase):
         self.active_taker_orders_ids.add(order_id_1, hedge_exchange)
 
     def handle_failed_hedge(self, exchange_trade_id):
+
+        self.logger().info("handle_failed_hedge:")
         is_buy = self.hedge_trades[exchange_trade_id]["is_buy"]
         amount = self.hedge_trades[exchange_trade_id]["amount"]
         event = self.hedge_trades[exchange_trade_id]["event"]
@@ -950,8 +973,9 @@ class XEMMStrategy(StrategyPyBase):
                     best_available_exchange = exchange
 
         if best_available_exchange:
-            self.logger().info(f"handle_failed_hedge: re submit hedge for: {event}")
-            self.execute_hedge(amount, is_buy, best_available_exchange, exchange_trade_id)
+            self.logger().info(f"handle_failed_hedge: re submit hedge for: {event}"
+                               f"amount {amount}, is_buy: {is_buy}, best_available_exchange: {best_available_exchange} exchange_trade_id: {exchange_trade_id}: ")
+            safe_ensure_future(self.execute_hedge(amount, is_buy, best_available_exchange, exchange_trade_id))
         else:
             self.logger().info(f"handle_failed_hedge: no hedge possible for: {event}")
             msg = f"handle_failed_hedge: no hedge possible for: {event}"
@@ -961,7 +985,7 @@ class XEMMStrategy(StrategyPyBase):
         self.logger().info(f"place_hedge: place hedge for: {event}")
         amount = event.amount
         is_buy = True if event.trade_type == TradeType.BUY else False
-        maker_exchange = self.get_exchange_from_order_id(event.order_id)
+        maker_exchange = self.active_maker_orders_ids.get_exchange(event.order_id)  # self.get_exchange_from_order_id(event.order_id)
 
         # check for failed orders
         for hedge_id, info in self.hedge_trades.items():
@@ -1004,7 +1028,6 @@ class XEMMStrategy(StrategyPyBase):
         safe_ensure_future(self.execute_hedge(amount, hedge_order_is_buy, hedge_exchange, exchange_trade_id))
 
     # format status
-
     def format_status(self) -> str:
         """
         Returns status of the current strategy on user balances and current active orders. This function is called
@@ -1092,7 +1115,7 @@ class XEMMStrategy(StrategyPyBase):
             vol_pct = self.volatility_indicator[connector_name][pair].current_value_pct
             vol_adjusted = self.adjusted_vol(vol_decimal)
             vol_additional_spread = vol_adjusted * Decimal(100)
-            roundtrip_latency = self.latency_roundtrip[connector_name]
+            roundtrip_latency = sum(self.latency_roundtrip[connector_name]) / len(self.latency_roundtrip[connector_name])
             spread = ((self.connectors[connector_name].get_price(pair, True) - self.connectors[connector_name].get_price(pair, False)) / self.connectors[connector_name].get_price(pair, True)) * 100
 
             mid_price = self.connectors[connector_name].get_mid_price(pair)
@@ -1101,7 +1124,7 @@ class XEMMStrategy(StrategyPyBase):
                          f"{round(spread, 2)}%",
                          f"{mid_price}",
                          f"{round(vol_additional_spread, 2)}%",
-                         f"{roundtrip_latency} ms"
+                         f"{round(roundtrip_latency, 2)} ms"
                          ])
 
         df = pd.DataFrame(data=data, columns=columns).replace(np.nan, '', regex=True)
@@ -1159,11 +1182,32 @@ class XEMMStrategy(StrategyPyBase):
         return df
 
     # event handlers
-
     def did_create_order(self, event):
 
         if event.order_id in self.order_creation_events:
             self.order_creation_events[event.order_id].set()
+
+        # todo: delete this if the HB foundation fixes the issue with kucoin
+
+        if self.active_taker_orders_ids.is_active_order(event.order_id):
+            # check if the exchange order id exists:
+            if event.exchange_order_id is None:
+                self.logger().info(f"did_create_order: exchange_order_id is None for {event.order_id} will remove order from tracking and re submit hedge")
+                exchange = self.active_taker_orders_ids.get_exchange(event.order_id)
+                self.connectors[exchange].stop_tracking_order(event.order_id)
+
+                # perform clean up
+                self.active_taker_orders_ids.remove(event.order_id)
+
+                # uptade variables
+                exchange_trade_id = self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
+                del self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
+                self.hedge_trades[exchange_trade_id]["status"] = "failed"
+                self.time_out_dict[exchange] = False
+                base, quote = list(self.markets[exchange])[0].split("-")
+                safe_ensure_future(self.connectors[exchange]._update_balances())
+                self.logger().info(f"did_create_order: {exchange}, quote: {self.connectors[exchange].get_available_balance(quote)}, base: {self.connectors[exchange].get_available_balance(base)}")
+                self.handle_failed_hedge(exchange_trade_id)
 
     def did_create_buy_order(self, event: BuyOrderCreatedEvent):
         """
@@ -1184,7 +1228,7 @@ class XEMMStrategy(StrategyPyBase):
     def calculate_latency(self, event):
         for exchange, id, timestamp in self.order_id_creation_timestamp:
             if id == event.order_id:
-                self.latency_roundtrip[exchange] = round((time.perf_counter() - timestamp) * 1000)
+                self.latency_roundtrip[exchange].append((time.perf_counter() - timestamp) * 1000)
                 self.order_id_creation_timestamp.remove((exchange, id, timestamp))
 
     def did_fail_order(self, event: MarketOrderFailureEvent):
@@ -1194,7 +1238,7 @@ class XEMMStrategy(StrategyPyBase):
         self.calculate_latency(event)
 
         # handle if maker order
-        if self.active_maker_orders_ids.is_active_order(event.order_id):
+        if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
             self.active_maker_orders_ids.remove((exchange, event.order_id))
             self.time_out_dict[exchange] = False
@@ -1206,7 +1250,7 @@ class XEMMStrategy(StrategyPyBase):
             self.cancel(exchange, list(self.markets[exchange])[0], event.order_id)
 
         # handle if taker order
-        if self.active_taker_orders_ids.is_active_order(event.order_id):
+        if self.active_taker_orders_ids.is_or_was_active_order(event.order_id):
             exchange = self.active_taker_orders_ids.get_exchange(event.order_id)
 
             # uptade variables
@@ -1216,8 +1260,14 @@ class XEMMStrategy(StrategyPyBase):
             self.time_out_dict[exchange] = False
             base, quote = list(self.markets[exchange])[0].split("-")
             safe_ensure_future(self.connectors[exchange]._update_balances())
-            self.logger().info(f"{exchange}, quote: {self.connectors[exchange].get_available_balance(quote)}, base: {self.connectors[exchange].get_available_balance(base)}")
+            self.logger().info(f"did_fail_order: {exchange}, quote: {self.connectors[exchange].get_available_balance(quote)}, base: {self.connectors[exchange].get_available_balance(base)}")
             self.handle_failed_hedge(exchange_trade_id)
+
+            # todo: delete this if the HB foundation fixes the issue with kucoin
+            if exchange == "kucoin":
+                self.logger().info("did_fail_order: remove order from tracking")
+                self.connectors[exchange].stop_tracking_order(event.order_id)
+
         self.log_inflight_orders()
 
     def log_inflight_orders(self):
@@ -1227,7 +1277,6 @@ class XEMMStrategy(StrategyPyBase):
         for exchange, token in self.markets.items():
             for order in self.connectors[exchange].in_flight_orders.values():
                 order_id = order.client_order_id
-                # ticker = order.trading_pair
                 amount = order.amount
                 side = "BUY" if order.trade_type == TradeType.BUY else "SELL"
                 current_state = order.current_state
@@ -1235,7 +1284,7 @@ class XEMMStrategy(StrategyPyBase):
 
     def did_fill_order(self, event: OrderFilledEvent):
         # handle if maker order
-        if self.active_maker_orders_ids.is_active_order(event.order_id):
+        if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
             self.logger().info(f"Filled maker {event.trade_type} order for {event.amount} with price: {event.price} exchange: {exchange}")
 
@@ -1245,11 +1294,11 @@ class XEMMStrategy(StrategyPyBase):
 
     def handle_order_complete_event(self, event):
         # handle if maker order
-        if self.active_maker_orders_ids.is_active_order(event.order_id):
+        if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             self.active_maker_orders_ids.remove(event.order_id)
 
         # handle if taker order
-        if self.active_taker_orders_ids.is_active_order(event.order_id):
+        if self.active_taker_orders_ids.is_or_was_active_order(event.order_id):
             self.active_taker_orders_ids.remove(event.order_id)
             exchange = self.active_taker_orders_ids.get_exchange(event.order_id)
             self.logger().info(f"handle_order_complete_event: hedge_trades: {self.hedge_trades}")
@@ -1279,7 +1328,7 @@ class XEMMStrategy(StrategyPyBase):
         Method called when the connector notifies an order has been cancelled
         """
         # handle if maker order
-        if self.active_maker_orders_ids.is_active_order(event.order_id):
+        if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
             self.active_maker_orders_ids.remove(event.order_id)
             self.maker_order_id_to_hedge_exchange.pop(exchange, None)
@@ -1287,7 +1336,7 @@ class XEMMStrategy(StrategyPyBase):
                 safe_ensure_future(self.connectors[exchange]._update_balances())
 
         # handle if taker order
-        if self.active_taker_orders_ids.is_active_order(event.order_id):
+        if self.active_taker_orders_ids.is_or_was_active_order(event.order_id):
             self.logger().info(f"did_cancel_order: taker order {event.order_id} has been cancelled! ")
 
             for exchange, token in self.markets.items():
