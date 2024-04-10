@@ -37,6 +37,9 @@ class ActiveOrder:
         return self.data
 
     def is_active_order(self, order_id):
+        return True if order_id in self.data else False
+
+    def is_or_was_active_order(self, order_id):
         return True if order_id in self.data or order_id in self.deleted_data else False
 
 
@@ -95,7 +98,7 @@ class UtilsFunctions:
 
 
 class VolatilityIndicator2:
-    """feed indicator every second to calcuulate vol"""
+    """feed indicator every second to calculate vol"""
 
     def __init__(self, price_delegate, price_feed_update_interval_s=1, vol_update_s=5, window=300):
         self.vol = 0

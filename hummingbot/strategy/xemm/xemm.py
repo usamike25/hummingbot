@@ -29,12 +29,11 @@ from hummingbot.core.event.events import (
     SellOrderCreatedEvent,
     TradeType,
 )
-from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.order_book_asset_price_delegate import OrderBookAssetPriceDelegate
 from hummingbot.strategy.strategy_py_base import StrategyPyBase
-from hummingbot.strategy.xemm.utils import ActiveOrder, VolatilityIndicator2
+from hummingbot.strategy.xemm.xemm_utils import ActiveOrder, VolatilityIndicator2
 
 # import sys
 # from pmm_scripts.path import path_to_pmm_scripts
@@ -71,6 +70,10 @@ class XEMMStrategy(StrategyPyBase):
 
     version: 1.3
     """
+
+    # def __init__(self, *args, **kwargs):
+    #     super().__init__(args, kwargs)
+    #     self._all_markets_ready = None
 
     @classmethod
     def logger(cls):
@@ -127,6 +130,9 @@ class XEMMStrategy(StrategyPyBase):
         self.latency_roundtrip = {}
         self.order_creation_events = {}  # this is used to await pending create orders in order to properly cancel them
 
+        self._base_asset_amount = None
+        self._base_asset_amount_last_checked = 0
+
         self.add_markets([self.connectors[ex] for ex in self.markets.keys()])
 
     @property
@@ -157,14 +163,20 @@ class XEMMStrategy(StrategyPyBase):
 
         self.status_ready = True
 
-    def on_tick(self):
+    def tick(self, timestamp: float):
+
+        if not self._all_markets_ready:
+            self._all_markets_ready = all([market.ready for market in self.active_markets])
+            if not self._all_markets_ready:
+                # Markets not ready yet. Don't do anything.
+                self.logger().warning("Markets are not ready. No market making trades are permitted.")
+                return
+            else:
+                # Markets are ready, ok to proceed.
+                self.logger().info("Markets are ready.")
+
         if not self.status_ready:
             self.set_variables()
-
-        if not all([mkt.network_status is NetworkStatus.CONNECTED for mkt in [self.connectors[mkt] for mkt, _ in self.markets.items()]]):
-            self.logger().warning(f"WARNING: Some markets are not connected or are down at the moment. Market "
-                                  f"{[(mkt, self.connectors[mkt].network_status) for mkt, _ in self.markets.items()]}.")
-            return
 
         start_time = time.perf_counter()
 
