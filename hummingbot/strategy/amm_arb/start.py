@@ -82,8 +82,8 @@ def start(self):
         conversion_asset_price_delegate.add_fixed_asset_price_delegate(pair, Decimal(rate))
 
     # add to markets
-    for ex, market in conversion_asset_price_delegate.markets.items():
-        self.markets[ex] = market
+    for conversion_pair, market in conversion_asset_price_delegate.markets.items():
+        self.markets[conversion_pair] = market
 
     if debug_price_shim:
         amm_market_info: MarketTradingPairTuple = market_info_1

@@ -98,7 +98,7 @@ class RateConversionOracle:
             return
 
         if self._trading_pair_fetcher.ready:
-            trading_pairs = self._trading_pair_fetcher.trading_pairs.get(self._paper_trade_market, [])
+            trading_pairs = self._trading_pair_fetcher.trading_pairs.get(f"{self._paper_trade_market}_paper_trade", [])
             if conversion_pair not in trading_pairs:
                 conversion_pair = inverse_conversion_pair
                 if inverse_conversion_pair not in trading_pairs:
