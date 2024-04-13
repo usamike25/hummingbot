@@ -271,9 +271,6 @@ class XEMMStrategy(StrategyPyBase):
             pair = list(token)[0]
 
             for order_dict in self.optimal_quotes[exchange]["buy_orders"]:
-                self.logger().info(f"buy self.optimal_quotes: {self.optimal_quotes}")
-                self.logger().info(f"buy order_dict: {order_dict}")
-
                 hedge_exchange = order_dict["hedge_exchange"]
                 if order_dict["order_id"] or self.time_out_dict[hedge_exchange]:
                     continue
@@ -309,7 +306,6 @@ class XEMMStrategy(StrategyPyBase):
                         order_dict["order_id"] = order_id
                         self.active_maker_orders_ids.add(order_id, exchange)
                         self.maker_order_id_to_hedge_exchange[order_id] = hedge_exchange
-                        self.logger().info(f"buy order order_dict: {order_dict}")
 
             for order_dict in self.optimal_quotes[exchange]["sell_orders"]:
                 hedge_exchange = order_dict["hedge_exchange"]
@@ -347,7 +343,6 @@ class XEMMStrategy(StrategyPyBase):
                         order_dict["order_id"] = order_id
                         self.active_maker_orders_ids.add(order_id, exchange)
                         self.maker_order_id_to_hedge_exchange[order_id] = hedge_exchange
-                        self.logger().info(f"sell order order_dict: {order_dict}")
 
     def has_pending_cancel_orders(self, exchange):
         for order in self.connectors[exchange].in_flight_orders.values():
@@ -676,9 +671,6 @@ class XEMMStrategy(StrategyPyBase):
                 "sell_orders": sell_orders
             }
 
-        self.logger().info(f"new_optimal_quotes: {new_optimal_quotes}")
-        self.logger().info(f"self.optimal_quotes: {self.optimal_quotes}")
-
         # compare old optimal quotes with new one and delete
         if self.optimal_quotes:
             for order_id, exchange in self.active_maker_orders_ids.get_active_orders_dict().items():
@@ -724,7 +716,7 @@ class XEMMStrategy(StrategyPyBase):
 
         # cancel orders below min profit or after max order age
         for id, ex in place_cancel_dict.items():
-            # todo: KeyError if order got manually stop_tracking_order
+            # todo: KeyError,  if order got manually stop_tracking_order
             current_state = self.connectors[ex].in_flight_orders[id].current_state
             if current_state != OrderState.PENDING_CANCEL:
                 trading_pair = list(self.markets[ex])[0]
