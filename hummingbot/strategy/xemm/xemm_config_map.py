@@ -30,9 +30,24 @@ xemm_config_map = {
         key="strategy",
         prompt="",
         default="amm_arb"),
-
+    "mode": ConfigVar(
+        key="mode",
+        prompt="mode: profit or market_making ? >>> ",
+        prompt_on_new=True,
+        default="profit",
+        type_str="str"),
     # todo this could be donne differently
     "exchange_stats": ConfigVar(
+        key="exchange_stats",
+        prompt="",
+        prompt_on_new=False,
+        type_str="decimal"),
+    "profit_settings": ConfigVar(
+        key="profit_settings",
+        prompt="",
+        prompt_on_new=False,
+        type_str="decimal"),
+    "market_making_settings": ConfigVar(
         key="exchange_stats",
         prompt="",
         prompt_on_new=False,

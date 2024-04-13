@@ -16,8 +16,8 @@ HBOT_ORDER_ID_PREFIX = "HMBot"
 EXCHANGE_NAME = "ascend_ex"
 PUBLIC_REST_URL = "https://ascendex.com/api/pro/v1/"
 PRIVATE_REST_URL = "https://ascendex.com/{group_id}/api/pro/v1/"
-WS_URL = "wss://ascendex.com:443/api/pro/v1/websocket-for-hummingbot-liq-mining"
-PRIVATE_WS_URL = "wss://ascendex.com:443/{group_id}/api/pro/v1/websocket-for-hummingbot-liq-mining"
+WS_URL = "wss://ascendex.com:443/api/pro/v1"  # "wss://ascendex.com:443/api/pro/v1/websocket-for-hummingbot-liq-mining"
+PRIVATE_WS_URL = "wss://ascendex.com:443/{group_id}/api/pro/v1"  # "wss://ascendex.com:443/{group_id}/api/pro/v1/websocket-for-hummingbot-liq-mining"
 
 # REST API ENDPOINTS
 ORDER_PATH_URL = "cash/order"

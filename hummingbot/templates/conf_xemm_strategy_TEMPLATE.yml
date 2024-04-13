@@ -9,8 +9,23 @@ strategy: null
 
 # Connectors and markets parameters
 
+mode: "market_making" # "profit" or "market_making"
+
 exchange_stats: null
 
+profit_settings: null
+
+market_making_settings:
+  number_of_orders: 2
+  order_amounts: [ 10, 20 ]
+  min_profitability: [ 0.0015, 0.0015 ]
+  top_depth_tolerance_taker: [ 100, 110 ]  # not implemented
+  inventory_skew_enabled: [ True, True ] # not implemented
+  optimize_order: [ True, True ]
+  inventory_range_allowance_pct: [ 0.1, 0.2 ] # not implemented
+  inv_size_increase_factor: [ 0.1, 0.1 ] # not implemented
+  anti_hysterisis_threshold: [ 10, 20 ] # not implemented
+  inv_size_decrease_factor: [ 0.1, 0.1 ] # not implemented
 
 max_order_size_quote: null
 
