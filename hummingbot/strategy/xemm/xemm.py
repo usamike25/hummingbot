@@ -272,7 +272,7 @@ class XEMMStrategy(StrategyPyBase):
 
             for order_dict in self.optimal_quotes[exchange]["buy_orders"]:
                 hedge_exchange = order_dict["hedge_exchange"]
-                if order_dict["order_id"] or self.time_out_dict[hedge_exchange]:
+                if order_dict["order_id"] or hedge_exchange is None or self.time_out_dict[hedge_exchange]:
                     continue
 
                 amount = order_dict["amount"]
@@ -309,7 +309,7 @@ class XEMMStrategy(StrategyPyBase):
 
             for order_dict in self.optimal_quotes[exchange]["sell_orders"]:
                 hedge_exchange = order_dict["hedge_exchange"]
-                if order_dict["order_id"] or self.time_out_dict[hedge_exchange]:
+                if order_dict["order_id"] or hedge_exchange is None or self.time_out_dict[hedge_exchange]:
                     continue
 
                 amount = order_dict["amount"]
@@ -372,30 +372,30 @@ class XEMMStrategy(StrategyPyBase):
             order_book_iterator = self.connectors[exchange].get_order_book(pair).bid_entries()
             first_ob_entry = next(order_book_iterator, None)
             if price >= first_ob_entry.price and amount_sub_my_orders_and_ignore_small_orders(first_ob_entry) != 0:
-                return Decimal(first_ob_entry.price)
+                return self.connectors[exchange].quantize_order_price(pair, Decimal(first_ob_entry.price))
 
             if optimize_order:
 
                 for ob_entry in order_book_iterator:
                     if price == ob_entry.price and amount_sub_my_orders_and_ignore_small_orders(ob_entry) != 0:
-                        return Decimal(ob_entry.price)
+                        return self.connectors[exchange].quantize_order_price(pair, Decimal(ob_entry.price))
                     if price > ob_entry.price and amount_sub_my_orders_and_ignore_small_orders(ob_entry) != 0:
-                        return Decimal(ob_entry.price) + min_price_step
+                        return self.connectors[exchange].quantize_order_price(pair, Decimal(ob_entry.price) + min_price_step)
 
         else:
             order_book_iterator = self.connectors[exchange].get_order_book(pair).ask_entries()
             first_ob_entry = next(order_book_iterator, None)
             if price <= first_ob_entry.price and amount_sub_my_orders_and_ignore_small_orders(first_ob_entry) != 0:
-                return Decimal(first_ob_entry.price)
+                return self.connectors[exchange].quantize_order_price(pair, Decimal(first_ob_entry.price))
 
             if optimize_order:
                 for ob_entry in order_book_iterator:
                     if price == ob_entry.price and amount_sub_my_orders_and_ignore_small_orders(ob_entry) != 0:
-                        return Decimal(ob_entry.price)
+                        return self.connectors[exchange].quantize_order_price(pair, Decimal(ob_entry.price))
                     if price < ob_entry.price and amount_sub_my_orders_and_ignore_small_orders(ob_entry) != 0:
-                        return Decimal(ob_entry.price) - min_price_step
+                        return self.connectors[exchange].quantize_order_price(pair, Decimal(ob_entry.price) - min_price_step)
 
-        return price
+        return self.connectors[exchange].quantize_order_price(pair, price)
 
     def is_perpetual_exchange(self, exchange):
         return True if exchange.endswith("perpetual_testnet") or exchange.endswith("perpetual") else False
@@ -441,7 +441,7 @@ class XEMMStrategy(StrategyPyBase):
             hedge_price_ask = possible_prices_list_ask[i][1]
             taker_fee = self.exchange_stats[hedge_exchange_ask]["taker_fee"]
             available_quote = self.exchange_info[hedge_exchange_ask]["quote"]
-            maker_ask = self.connectors[exchange].quantize_order_price(pair, (hedge_price_ask * (Decimal(1) + adjusted_vol + maker_fee + taker_fee + min_profit)))
+            maker_ask = hedge_price_ask * (Decimal(1) + adjusted_vol + maker_fee + taker_fee + min_profit)
 
             if base_amount <= available_quote / hedge_price_ask:
                 if self.is_above_min_order_size(exchange, base_amount, maker_ask) and self.is_above_min_order_size(hedge_exchange_ask, base_amount, hedge_price_ask):
@@ -465,7 +465,7 @@ class XEMMStrategy(StrategyPyBase):
             hedge_price_bid = possible_prices_list_bid[i][1]
             taker_fee = self.exchange_stats[hedge_exchange_bid]["taker_fee"]
             available_base = self.exchange_info[hedge_exchange_bid]["base"]
-            maker_bid = self.connectors[exchange].quantize_order_price(pair, (hedge_price_bid * (Decimal(1) - adjusted_vol - maker_fee - taker_fee - min_profit)))
+            maker_bid = hedge_price_bid * (Decimal(1) - adjusted_vol - maker_fee - taker_fee - min_profit)
 
             if quote_amount / mid <= available_base:
                 if self.is_above_min_order_size(exchange, quote_amount / mid, maker_bid) and self.is_above_min_order_size(hedge_exchange_bid, quote_amount / mid, maker_bid):
@@ -500,6 +500,8 @@ class XEMMStrategy(StrategyPyBase):
         adjusted_vol = self.adjusted_vol(vol)
         maker_fee = self.exchange_stats[exchange]["maker_fee"]
 
+        #  create possible_prices_list
+        # todo: this can be optimized, as not all sell orders are placed on the same exchange
         for ex, token in self.markets.items():
             if ex != exchange:
                 pair_ex = list(token)[0]
@@ -526,10 +528,13 @@ class XEMMStrategy(StrategyPyBase):
 
                     additional_amount_base += order_amount_base
 
+        # sort
         for i in range(self.market_making_settings["number_of_orders"]):
             possible_prices_list_bid_dict[i] = sorted(possible_prices_list_bid_dict[i], key=lambda item: item[1], reverse=True)
             possible_prices_list_ask_dict[i] = sorted(possible_prices_list_ask_dict[i], key=lambda item: item[1], reverse=False)
 
+        #  create orders
+        exchange_info = dict(self.exchange_info)  # need to copy in order to not change the original dict
         for i in range(self.market_making_settings["number_of_orders"]):
             min_profit = Decimal(self.market_making_settings["min_profitability"][i])
             optimize_order = self.market_making_settings["optimize_order"][i]
@@ -539,8 +544,8 @@ class XEMMStrategy(StrategyPyBase):
                 hedge_exchange_ask = possible_prices_list_ask_dict[i][j][0]
                 hedge_price_ask = possible_prices_list_ask_dict[i][j][1]
                 taker_fee = self.exchange_stats[hedge_exchange_ask]["taker_fee"]
-                available_quote = self.exchange_info[hedge_exchange_ask]["quote"]
-                maker_ask = self.connectors[exchange].quantize_order_price(pair, (hedge_price_ask * (Decimal(1) + adjusted_vol + maker_fee + taker_fee + min_profit)))
+                available_quote = exchange_info[hedge_exchange_ask]["quote"]
+                maker_ask = hedge_price_ask * (Decimal(1) + adjusted_vol + maker_fee + taker_fee + min_profit)
 
                 order_amount_base = min(self.market_making_settings["order_amounts"][i], base_amount)
 
@@ -552,12 +557,13 @@ class XEMMStrategy(StrategyPyBase):
                                             "hedge_exchange": hedge_exchange_ask,
                                             "order_id": None})
                         base_amount -= order_amount_base
+                        exchange_info[hedge_exchange_ask]["quote"] -= order_amount_base * hedge_price_ask
                         break
                 elif j == len(possible_prices_list_ask_dict[i]) - 1:  # deploy what ever is left to the best price exchange
                     hedge_exchange_ask = possible_prices_list_ask_dict[i][0][0]
                     hedge_price_ask = possible_prices_list_ask_dict[i][0][1]
-                    available_quote = self.exchange_info[hedge_exchange_ask]["quote"]
-                    maker_ask = self.connectors[exchange].quantize_order_price(pair, (hedge_price_ask * (Decimal(1) + adjusted_vol + maker_fee + taker_fee + min_profit)))
+                    available_quote = exchange_info[hedge_exchange_ask]["quote"]
+                    maker_ask = hedge_price_ask * (Decimal(1) + adjusted_vol + maker_fee + taker_fee + min_profit)
                     order_amount_base = available_quote / hedge_price_ask
                     if self.is_above_min_order_size(exchange, order_amount_base, maker_ask) and self.is_above_min_order_size(hedge_exchange_ask, order_amount_base, hedge_price_ask):
                         maker_ask = self.optimize_order_placement(maker_ask, False, exchange, pair, optimize_order)
@@ -566,6 +572,7 @@ class XEMMStrategy(StrategyPyBase):
                                             "hedge_exchange": hedge_exchange_ask,
                                             "order_id": None})
                         base_amount -= order_amount_base
+                        exchange_info[hedge_exchange_ask]["quote"] -= order_amount_base * hedge_price_ask
                         break
 
             # buy orders
@@ -573,8 +580,8 @@ class XEMMStrategy(StrategyPyBase):
                 hedge_exchange_bid = possible_prices_list_bid_dict[i][j][0]
                 hedge_price_bid = possible_prices_list_bid_dict[i][j][1]
                 taker_fee = self.exchange_stats[hedge_exchange_bid]["taker_fee"]
-                available_base = self.exchange_info[hedge_exchange_bid]["base"]
-                maker_bid = self.connectors[exchange].quantize_order_price(pair, (hedge_price_bid * (Decimal(1) - adjusted_vol - maker_fee - taker_fee - min_profit)))
+                available_base = exchange_info[hedge_exchange_bid]["base"]
+                maker_bid = hedge_price_bid * (Decimal(1) - adjusted_vol - maker_fee - taker_fee - min_profit)
 
                 order_amount_base = min(self.market_making_settings["order_amounts"][i], quote_amount / mid)
 
@@ -586,12 +593,13 @@ class XEMMStrategy(StrategyPyBase):
                                            "hedge_exchange": hedge_exchange_bid,
                                            "order_id": None})
                         quote_amount -= order_amount_base * mid
+                        exchange_info[hedge_exchange_bid]["base"] -= order_amount_base
                         break
                 elif j == len(possible_prices_list_bid_dict[i]) - 1:  # deploy what ever is left to the best price exchange
                     hedge_exchange_bid = possible_prices_list_bid_dict[i][0][0]
                     hedge_price_bid = possible_prices_list_bid_dict[i][0][1]
-                    available_base = self.exchange_info[hedge_exchange_bid]["base"]
-                    maker_bid = self.connectors[exchange].quantize_order_price(pair, (hedge_price_bid * (Decimal(1) - adjusted_vol - maker_fee - taker_fee - min_profit)))
+                    available_base = exchange_info[hedge_exchange_bid]["base"]
+                    maker_bid = hedge_price_bid * (Decimal(1) - adjusted_vol - maker_fee - taker_fee - min_profit)
                     order_amount_base = available_base
                     if self.is_above_min_order_size(exchange, order_amount_base, maker_bid) and self.is_above_min_order_size(hedge_exchange_bid, order_amount_base, hedge_price_bid):
                         maker_bid = self.optimize_order_placement(maker_bid, True, exchange, pair, optimize_order)
@@ -600,8 +608,22 @@ class XEMMStrategy(StrategyPyBase):
                                            "hedge_exchange": hedge_exchange_bid,
                                            "order_id": None})
                         quote_amount -= order_amount_base * mid
+                        exchange_info[hedge_exchange_bid]["base"] -= order_amount_base
                         break
 
+        # format buy_orders and sell_orders
+        if len(buy_orders) < self.market_making_settings["number_of_orders"]:
+            for i in range(len(buy_orders), self.market_making_settings["number_of_orders"]):
+                buy_orders.append({"amount": s_decimal_zero,
+                                   "price": s_decimal_zero,
+                                   "hedge_exchange": None,
+                                   "order_id": None})
+        if len(sell_orders) < self.market_making_settings["number_of_orders"]:
+            for i in range(len(sell_orders), self.market_making_settings["number_of_orders"]):
+                sell_orders.append({"amount": s_decimal_zero,
+                                    "price": s_decimal_zero,
+                                    "hedge_exchange": None,
+                                    "order_id": None})
         return buy_orders, sell_orders
 
     def get_optimal_orders_lists(self, exchange, pair, base_amount, quote_amount, mid):
@@ -629,7 +651,7 @@ class XEMMStrategy(StrategyPyBase):
                  "order_id": str}
             ]
         }"""
-        place_cancel_dict = {}
+
         new_optimal_quotes = {}
         for exchange, token in self.markets.items():
             pair = list(token)[0]
@@ -671,48 +693,117 @@ class XEMMStrategy(StrategyPyBase):
                 "sell_orders": sell_orders
             }
 
-        # compare old optimal quotes with new one and delete
+        # compare old optimal quotes with new
+
         if self.optimal_quotes:
-            for order_id, exchange in self.active_maker_orders_ids.get_active_orders_dict().items():
-                if order_id not in self.ids_to_cancel:
-                    old_order = self.connectors[exchange].in_flight_orders[order_id]
-                    is_buy = True if old_order.trade_type == TradeType.BUY else False
-                    price = old_order.price
-                    creation_timestamp = old_order.creation_timestamp  # in flight orders have a resolution of 1S, Limit orders of 0.0000001S
-                    hedge_exchange = self.maker_order_id_to_hedge_exchange[order_id]
-                    order_to_old = True if creation_timestamp + self.max_order_age_seconds < self.current_timestamp else False
+            if self.mode == "profit":
+                self.compare_old_with_new_optimal_quotes_profit(new_optimal_quotes)
+            elif self.mode == "market_making":
+                self.compare_old_with_new_optimal_quotes_market_making(new_optimal_quotes)
+        else:
+            self.optimal_quotes = new_optimal_quotes
 
-                    # check if to old
-                    if order_to_old:
-                        place_cancel_dict[order_id] = exchange
-                        break
+    def compare_old_with_new_optimal_quotes_market_making(self, new_optimal_quotes):
+        place_cancel_dict = {}
+        order_sides = ["buy_orders", "sell_orders"]
+        for exchange, token in self.markets.items():
+            for order_side in order_sides:
+                for index, (old_order_entry, new_order_entry) in enumerate(zip(self.optimal_quotes[exchange][order_side], new_optimal_quotes[exchange][order_side])):
 
-                    # check if it exists in the new quotes
-                    order_side = "buy_orders" if is_buy else "sell_orders"
-                    keep_order = False
+                    if old_order_entry["order_id"]:
+                        order_id = old_order_entry["order_id"]
+                        try:
+                            old_order = self.connectors[exchange].in_flight_orders[order_id]
+                        except KeyError:
+                            self.logger().info(f"calculate_optimal_quotes: KeyError: {order_id}")
+                            continue
 
-                    for index, new_order in enumerate(new_optimal_quotes[exchange][order_side]):
+                        #  is_buy = True if old_order.trade_type == TradeType.BUY else False
+                        price = old_order.price
+                        creation_timestamp = old_order.creation_timestamp  # in flight orders have a resolution of 1S, Limit orders have a resolution of 0.0000001S
+                        hedge_exchange = self.maker_order_id_to_hedge_exchange[order_id]
+                        order_to_old = True if creation_timestamp + self.max_order_age_seconds < self.current_timestamp else False
+
+                        # check if to old
+                        if order_to_old:
+                            place_cancel_dict[order_id] = exchange
+                            continue
+
                         if order_side == "buy_orders":
-                            threshold_max = new_order["price"] * (Decimal(1) - Decimal(0.0008))
+                            threshold_max = new_order_entry["price"] * (Decimal(1) - Decimal(0.0008))
                         else:
-                            threshold_max = new_order["price"] * (Decimal(1) + Decimal(0.0008))
+                            threshold_max = new_order_entry["price"] * (Decimal(1) + Decimal(0.0008))
 
-                        # check if this order matches +-
-
-                        if hedge_exchange == new_order["hedge_exchange"] and (
-                                (order_side == "buy_orders" and new_order["price"] >= price > threshold_max) or (
-                                order_side == "sell_orders" and new_order["price"] <= price < threshold_max)):
+                        keep_order = False
+                        if hedge_exchange == new_order_entry["hedge_exchange"] and (
+                                (order_side == "buy_orders" and new_order_entry["price"] >= price > threshold_max) or (
+                                order_side == "sell_orders" and new_order_entry["price"] <= price < threshold_max)):
                             # keep order
-                            new_optimal_quotes[exchange][order_side][index] = {"amount": new_order["amount"],
-                                                                               "price": new_order["price"],
-                                                                               "hedge_exchange": new_order["hedge_exchange"],
+                            new_optimal_quotes[exchange][order_side][index] = {"amount": old_order_entry["amount"],
+                                                                               "price": old_order_entry["price"],
+                                                                               "hedge_exchange": old_order_entry["hedge_exchange"],
                                                                                "order_id": order_id}
                             keep_order = True
-                            break
 
-                    # cancel order if no equivalent is found
-                    if not keep_order:
-                        place_cancel_dict[order_id] = exchange
+                        # cancel order if no equivalent is found
+                        if not keep_order:
+                            place_cancel_dict[order_id] = exchange
+
+        # cancel orders below min profit or after max order age
+        for id, ex in place_cancel_dict.items():
+            # todo: KeyError,  if order got manually stop_tracking_order
+            current_state = self.connectors[ex].in_flight_orders[id].current_state
+            if current_state != OrderState.PENDING_CANCEL:
+                trading_pair = list(self.markets[ex])[0]
+                self.logger().info(f"calculate_optimal_quotes: cancel order {ex}: {id}, current_state: {current_state}")
+                self.ids_to_cancel.add(id)
+                safe_ensure_future(self.async_cancel(ex, trading_pair, id))
+
+        # re assign optimal quotes
+        self.optimal_quotes = new_optimal_quotes
+
+    def compare_old_with_new_optimal_quotes_profit(self, new_optimal_quotes):
+        place_cancel_dict = {}
+        for order_id, exchange in self.active_maker_orders_ids.get_active_orders_dict().items():
+            if order_id not in self.ids_to_cancel:
+                old_order = self.connectors[exchange].in_flight_orders[order_id]
+                is_buy = True if old_order.trade_type == TradeType.BUY else False
+                price = old_order.price
+                creation_timestamp = old_order.creation_timestamp  # in flight orders have a resolution of 1S, Limit orders of 0.0000001S
+                hedge_exchange = self.maker_order_id_to_hedge_exchange[order_id]
+                order_to_old = True if creation_timestamp + self.max_order_age_seconds < self.current_timestamp else False
+
+                # check if to old
+                if order_to_old:
+                    place_cancel_dict[order_id] = exchange
+                    break
+
+                # check if it exists in the new quotes
+                order_side = "buy_orders" if is_buy else "sell_orders"
+                keep_order = False
+
+                for index, new_order in enumerate(new_optimal_quotes[exchange][order_side]):
+                    if order_side == "buy_orders":
+                        threshold_max = new_order["price"] * (Decimal(1) - Decimal(0.0008))
+                    else:
+                        threshold_max = new_order["price"] * (Decimal(1) + Decimal(0.0008))
+
+                    # check if this order matches +-
+
+                    if hedge_exchange == new_order["hedge_exchange"] and (
+                            (order_side == "buy_orders" and new_order["price"] >= price > threshold_max) or (
+                            order_side == "sell_orders" and new_order["price"] <= price < threshold_max)):
+                        # keep order
+                        new_optimal_quotes[exchange][order_side][index] = {"amount": new_order["amount"],
+                                                                           "price": new_order["price"],
+                                                                           "hedge_exchange": new_order["hedge_exchange"],
+                                                                           "order_id": order_id}
+                        keep_order = True
+                        break
+
+                # cancel order if no equivalent is found
+                if not keep_order:
+                    place_cancel_dict[order_id] = exchange
 
         # cancel orders below min profit or after max order age
         for id, ex in place_cancel_dict.items():
