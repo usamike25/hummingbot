@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import logging
 import time
 from collections import deque
@@ -534,7 +535,7 @@ class XEMMStrategy(StrategyPyBase):
             possible_prices_list_ask_dict[i] = sorted(possible_prices_list_ask_dict[i], key=lambda item: item[1], reverse=False)
 
         #  create orders
-        exchange_info = dict(self.exchange_info)  # need to copy in order to not change the original dict
+        exchange_info = copy.deepcopy(self.exchange_info)  # need to deepcopy in order to not change the original dict
         for i in range(self.market_making_settings["number_of_orders"]):
             min_profit = Decimal(self.market_making_settings["min_profitability"][i])
             optimize_order = self.market_making_settings["optimize_order"][i]
