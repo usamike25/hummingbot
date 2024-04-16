@@ -198,21 +198,31 @@ class XEMMStrategy(StrategyPyBase):
 
         # check base asset drift
         if self.current_timestamp > self._base_asset_amount_last_checked + 10:
-            self._base_asset_amount_last_checked = self.current_timestamp
-            base_amount = 0
-            for exchange, token in self.markets.items():
-                pair = list(token)[0]
-                base, quote = pair.split("-")
-                base_amount += self.connectors[exchange].get_balance(base)
-            if not self._base_asset_amount:
-                self._base_asset_amount = base_amount
-            if 0.5 < (abs(base_amount - self._base_asset_amount) / self._base_asset_amount) * 100:
-                msg = f"Base asset drift detected: {self._base_asset_amount} -> {base_amount}"
-                self.logger().info(msg)
-                self.notify_hb_app_with_timestamp(msg)
-            self._base_asset_amount = base_amount
+            self.check_for_base_asset_drift()
 
         self.on_tick_runtime = ((time.perf_counter() - start_time) * 1000)
+
+    def check_for_base_asset_drift(self):
+        self._base_asset_amount_last_checked = self.current_timestamp
+        base_amount = 0
+        for exchange, token in self.markets.items():
+            pair = list(token)[0]
+            base, quote = pair.split("-")
+            base_amount += self.connectors[exchange].get_balance(base)
+
+        # add on going hedges
+        for exchange_trade_id, hedge_trade_dict in self.hedge_trades.items():
+            if hedge_trade_dict["status"] in ["in_process", "failed"]:
+                base_amount += hedge_trade_dict["amount"] if hedge_trade_dict["is_buy"] else -hedge_trade_dict["amount"]
+
+        if not self._base_asset_amount:
+            self._base_asset_amount = base_amount
+
+        if 0.5 < (abs(base_amount - self._base_asset_amount) / self._base_asset_amount) * 100:
+            msg = f"Base asset drift detected: {self._base_asset_amount} -> {base_amount}"
+            self.logger().info(msg)
+            self.notify_hb_app_with_timestamp(msg)
+        self._base_asset_amount = base_amount
 
     def buy(self,
             connector_name: str,
@@ -1198,6 +1208,7 @@ class XEMMStrategy(StrategyPyBase):
         if best_available_exchange:
             self.logger().info(f"handle_failed_hedge: re submit hedge for: {event}"
                                f"amount {amount}, is_buy: {is_buy}, best_available_exchange: {best_available_exchange} exchange_trade_id: {exchange_trade_id}: ")
+            self.hedge_trades[exchange_trade_id]["status"] = "in_process"
             safe_ensure_future(self.execute_hedge(amount, is_buy, best_available_exchange, exchange_trade_id))
         else:
             self.logger().info(f"handle_failed_hedge: no hedge possible for: {event}")
@@ -1224,7 +1235,7 @@ class XEMMStrategy(StrategyPyBase):
                 info["status"] = "processed"
                 self.logger().info(f"place_hedge: add failed order: {self.hedge_trades[hedge_id]}")
 
-        # if we have a negative value of amount, the order needs to be switched from buy to sell etc.
+        # if we have a negative value of amount, the order needs to be switched from buy to sell ...
         if amount < s_decimal_zero:
             is_buy = False if is_buy else True
             amount = abs(amount)
