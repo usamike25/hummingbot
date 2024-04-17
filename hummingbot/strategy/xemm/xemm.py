@@ -1475,7 +1475,7 @@ class XEMMStrategy(StrategyPyBase):
         # handle if maker order
         if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
-            self.active_maker_orders_ids.remove((exchange, event.order_id))
+            self.active_maker_orders_ids.remove(event.order_id)
             self.time_out_dict[exchange] = False
             self.ids_to_cancel.discard(event.order_id)
             safe_ensure_future(self.connectors[exchange]._update_balances())
