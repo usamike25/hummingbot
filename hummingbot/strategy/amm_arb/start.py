@@ -26,16 +26,10 @@ def start(self):
 
     dex_orders_only = amm_arb_config_map.get("dex_orders_only").value
     min_required_quote_balance = amm_arb_config_map.get("min_required_quote_balance").value
-    fixed_base_conversion_rate = amm_arb_config_map.get("fixed_base_conversion_rate").value
-    fixed_quote_conversion_rate = amm_arb_config_map.get("fixed_quote_conversion_rate").value
     fixed_conversion_rate_dict = dict(amm_arb_config_map.get("fixed_conversion_rate_dict").value)
 
     base_1, quote_1 = market_1.split("-")
     base_2, quote_2 = market_2.split("-")
-
-    # check fixed rates pair
-    fixed_rate_quote_pair = f"{base_1 if not assets_equality(arb_asset, base_1) else quote_1}-{base_2 if not assets_equality(arb_asset, base_2) else quote_2}"
-    fixed_rate_base_pair = f"{base_1 if assets_equality(arb_asset, base_1) else quote_1}-{base_2 if assets_equality(arb_asset, base_2) else quote_2}"
 
     # move arb_asset to the base on both markets
     arb_asset = get_basis_asset(arb_asset)
@@ -55,11 +49,14 @@ def start(self):
     market_info_2 = MarketTradingPairTuple(self.markets[connector_2], market_2, base_2, quote_2)
     self.market_trading_pair_tuples = [market_info_1, market_info_2]
 
+    # add assets to asset_set if the rates of the quote and base are not fixed
     asset_set = set()
-    asset_set.add(base_1)
-    asset_set.add(base_2)
-    asset_set.add(quote_1)
-    asset_set.add(quote_2)
+    if not ((f"{base_1}-{base_2}" in fixed_conversion_rate_dict.keys() or f"{base_2}-{base_1}" in fixed_conversion_rate_dict.keys()) and (
+            f"{quote_1}-{quote_2}" in fixed_conversion_rate_dict.keys() or f"{quote_2}-{quote_1}" in fixed_conversion_rate_dict.keys())):
+        asset_set.add(base_1)
+        asset_set.add(base_2)
+        asset_set.add(quote_1)
+        asset_set.add(quote_2)
 
     # get native token of the chain and add it to asset_set, this is needed for the fee calculation
     # todo grab native chain token from the chain info
@@ -69,15 +66,13 @@ def start(self):
                 asset_set.add("BNB")
             if market_info.market.chain == "etherum":
                 asset_set.add("ETH")
+            if market_info.market.chain == "telos-chain":
+                asset_set.add("TELOS")
 
     paper_trade_market = "binance"
     conversion_asset_price_delegate = RateConversionOracle(asset_set, self.client_config_map, paper_trade_market)
 
     # add fixed rates
-    if Decimal(fixed_quote_conversion_rate) != Decimal("0"):
-        conversion_asset_price_delegate.add_fixed_asset_price_delegate(fixed_rate_quote_pair, Decimal(fixed_quote_conversion_rate))
-    if Decimal(fixed_base_conversion_rate) != Decimal("0"):
-        conversion_asset_price_delegate.add_fixed_asset_price_delegate(fixed_rate_base_pair, Decimal(fixed_base_conversion_rate))
     for pair, rate in fixed_conversion_rate_dict.items():
         conversion_asset_price_delegate.add_fixed_asset_price_delegate(pair, Decimal(rate))
 

@@ -136,22 +136,6 @@ amm_arb_config_map = {
         prompt="",
         prompt_on_new=False,
         type_str="decimal"),
-
-    "fixed_quote_conversion_rate": ConfigVar(
-        key="fixed_quote_conversion_rate",
-        prompt=fixed_quote_conversion_rate_prompt,
-        prompt_on_new=True,
-        default=Decimal("0"),
-        validator=lambda v: validate_decimal(v),
-        type_str="decimal"),
-    "fixed_base_conversion_rate": ConfigVar(
-        key="fixed_base_conversion_rate",
-        prompt=fixed_base_conversion_rate_prompt,
-        prompt_on_new=True,
-        default=Decimal("1"),
-        validator=lambda v: validate_decimal(v),
-        type_str="decimal"),
-
     "order_amount": ConfigVar(
         key="order_amount",
         prompt=order_amount_prompt,

@@ -233,16 +233,6 @@ class AmmArbStrategy(StrategyPyBase):
             order_amount=self._order_amount,
         )
 
-        # test rates
-        # self.logger().info(f"USDT-DAI: {self._conversion_asset_price_delegate.get_pair_rate('USDT-DAI')}")
-        # self.logger().info(f"DAI-USDT: {self._conversion_asset_price_delegate.get_pair_rate('DAI-USDT')}")
-        # self.logger().info(f"XXX-XXX: {self._conversion_asset_price_delegate.get_pair_rate('XXX-XXX')}")
-        # self.logger().info(f"YYY-XXX: {self._conversion_asset_price_delegate.get_pair_rate('YYY-XXX')}")
-        # self.logger().info(f"BNB-ADA: {self._conversion_asset_price_delegate.get_pair_rate('BNB-ADA')}")
-        # self.logger().info(f"ADA-BNB: {self._conversion_asset_price_delegate.get_pair_rate('ADA-BNB')}")
-        # self.logger().info(f"USDT-ADA: {self._conversion_asset_price_delegate.get_pair_rate('USDT-ADA')}")
-        # self.logger().info(f"BNB-USDT: {self._conversion_asset_price_delegate.get_pair_rate('BNB-USDT')}")
-
         profitable_arb_proposals: List[ArbProposal] = [
             t.copy() for t in self._all_arb_proposals
             if t.profit_pct(
@@ -498,7 +488,8 @@ class AmmArbStrategy(StrategyPyBase):
         for market_info in [self._market_info_1, self._market_info_2]:
             if hasattr(market_info.market, "network_transaction_fee"):
                 transaction_fee: TokenAmount = getattr(market_info.market, "network_transaction_fee")
-                converted_transaction_fees = round(Decimal(transaction_fee.amount * self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair)), 5) if self._conversion_asset_price_delegate else "None"
+                converted_transaction_fees = round(Decimal(transaction_fee.amount * self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair)),
+                                                   5) if self._conversion_asset_price_delegate else "None"
                 data.append([market_info.market.display_name, f"{transaction_fee.amount} {transaction_fee.token}", converted_transaction_fees])
 
         network_fees_df = pd.DataFrame(data=data, columns=columns)

@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from hummingbot.connector.exchange.paper_trade import create_paper_trade_market
 from hummingbot.connector.exchange_base import ExchangeBase
+from hummingbot.core.rate_oracle.rate_oracle import RateOracle
 from hummingbot.core.utils.trading_pair_fetcher import TradingPairFetcher
 from hummingbot.strategy.order_book_asset_price_delegate import OrderBookAssetPriceDelegate
 
@@ -48,6 +49,7 @@ class RateConversionOracle:
         self._trading_pair_fetcher = TradingPairFetcher.get_instance()
         self._markets = {}
         self._client_config_map = client_config_map
+        self._legacy_rate_oracle = RateOracle.get_instance()
         self.init_rates()
 
     @property
@@ -71,8 +73,8 @@ class RateConversionOracle:
         """Add an OrderBookAssetPriceDelegate to self._rates"""
         asset = get_basis_asset(asset)  # convert WBTC to BTC for the exchange
         asset_price_delegate = self.get_asset_price_delegate(asset)
-        self._rates[f"{asset}-USDT"] = asset_price_delegate
-        return {f"{asset}-USDT": asset_price_delegate}
+        if asset_price_delegate:
+            self._rates[f"{asset}-USDT"] = asset_price_delegate
 
     def add_fixed_asset_price_delegate(self, pair, rate):
         """Add a fixed rate for a given pair to self._fixed_rates"""
@@ -96,19 +98,22 @@ class RateConversionOracle:
         inverse_conversion_pair = f"{quote}-{base}"
         if base == quote:
             return
-
+        use_legacy_oracle = False
         if self._trading_pair_fetcher.ready:
             trading_pairs = self._trading_pair_fetcher.trading_pairs.get(f"{self._paper_trade_market}_paper_trade", [])
             if conversion_pair not in trading_pairs:
                 conversion_pair = inverse_conversion_pair
                 if inverse_conversion_pair not in trading_pairs:
-                    raise ValueError(f"Trading pair '{conversion_pair}' not found for exchange '{self._paper_trade_market}'.")
+                    use_legacy_oracle = True
+                    print(f"The conversion pair {conversion_pair} is unavailable on {self._paper_trade_market}. Resorting to the legacy rate oracle.")
 
-        # todo why paper_trade_market
-        ext_market = create_paper_trade_market(self._paper_trade_market, self._client_config_map, [conversion_pair])
-        self._markets[conversion_pair]: ExchangeBase = ext_market
-        conversion_asset_price_delegate = OrderBookAssetPriceDelegate(ext_market, conversion_pair)
-        return conversion_asset_price_delegate
+        if not use_legacy_oracle:
+            ext_market = create_paper_trade_market(self._paper_trade_market, self._client_config_map, [conversion_pair])
+            self._markets[conversion_pair]: ExchangeBase = ext_market
+            conversion_asset_price_delegate = OrderBookAssetPriceDelegate(ext_market, conversion_pair)
+            return conversion_asset_price_delegate
+        else:
+            return None
 
     def get_pair_rate(self, pair):
         return self.get_mid_price(pair)
@@ -160,4 +165,4 @@ class RateConversionOracle:
             quote_price_in_usdt = self.get_rate_price_delegate(quote_rate_token)
             return base_price_in_usdt / quote_price_in_usdt
         else:
-            raise ValueError(f"One or both of the required pairs are not available. base: {base}, quote: {quote} in {self._rates}")
+            return self._legacy_rate_oracle.get_pair_rate(pair)
