@@ -10,6 +10,7 @@ from .data_types import ArbProposal, ArbProposalSide, TokenAmount
 s_decimal_nan = Decimal("NaN")
 
 
+
 class TradeDirection(Enum):
     BUY = 1
     SELL = 0

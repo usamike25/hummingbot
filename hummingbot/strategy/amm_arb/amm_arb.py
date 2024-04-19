@@ -58,9 +58,9 @@ class AmmArbStrategy(StrategyPyBase):
     _last_timestamp: float
     _status_report_interval: float
     _quote_eth_rate_fetch_loop_task: Optional[asyncio.Task]
-    _market_1_quote_eth_rate: None          # XXX (martin_kou): Why are these here?
-    _market_2_quote_eth_rate: None          # XXX (martin_kou): Why are these here?
-    _rate_source: Optional[RateOracle]
+    _market_1_quote_eth_rate: None  # XXX (martin_kou): Why are these here?
+    _market_2_quote_eth_rate: None  # XXX (martin_kou): Why are these here?
+    _rate_source: RateOracle
     _cancel_outdated_orders_task: Optional[asyncio.Task]
     _gateway_transaction_cancel_interval: int
 
@@ -81,7 +81,9 @@ class AmmArbStrategy(StrategyPyBase):
                     concurrent_orders_submission: bool = True,
                     status_report_interval: float = 900,
                     gateway_transaction_cancel_interval: int = 600,
-                    rate_source: Optional[RateOracle] = RateOracle.get_instance(),
+                    conversion_asset_price_delegate=None,
+                    dex_orders_only: bool = False,
+                    min_required_quote_balance: Decimal = Decimal(100)
                     ):
         """
         Assigns strategy parameters, this function must be called directly after init.
@@ -101,7 +103,6 @@ class AmmArbStrategy(StrategyPyBase):
         :param status_report_interval: Amount of seconds to wait to refresh the status report
         :param gateway_transaction_cancel_interval: Amount of seconds to wait before trying to cancel orders that are
         blockchain transactions that have not been included in a block (they are still in the mempool).
-        :param rate_source: The rate source to use for conversion rate - (RateOracle or FixedRateSource) - default is FixedRateSource
         """
         self._market_info_1 = market_info_1
         self._market_info_2 = market_info_2
@@ -122,12 +123,19 @@ class AmmArbStrategy(StrategyPyBase):
         self.add_markets([market_info_1.market, market_info_2.market])
         self._quote_eth_rate_fetch_loop_task = None
 
-        self._rate_source = rate_source
+        self._rate_source = RateOracle.get_instance()
 
         self._cancel_outdated_orders_task = None
         self._gateway_transaction_cancel_interval = gateway_transaction_cancel_interval
 
         self._order_id_side_map: Dict[str, ArbProposalSide] = {}
+
+        self._conversion_asset_price_delegate = conversion_asset_price_delegate
+
+        self._dex_orders_only = dex_orders_only
+        self._min_required_quote_balance = min_required_quote_balance
+
+        self._order_id_to_exchange = {}
 
     @property
     def all_markets_ready(self) -> bool:
@@ -150,11 +158,11 @@ class AmmArbStrategy(StrategyPyBase):
         self._order_amount = value
 
     @property
-    def rate_source(self) -> Optional[RateOracle]:
+    def rate_source(self) -> RateOracle:
         return self._rate_source
 
     @rate_source.setter
-    def rate_source(self, src: Optional[RateOracle]):
+    def rate_source(self, src: RateOracle):
         self._rate_source = src
 
     @property
@@ -164,9 +172,12 @@ class AmmArbStrategy(StrategyPyBase):
     @staticmethod
     @lru_cache(maxsize=10)
     def is_gateway_market(market_info: MarketTradingPairTuple) -> bool:
-        return market_info.market.name in sorted(
-            AllConnectorSettings.get_gateway_amm_connector_names()
-        )
+        all_dex_connector_names = sorted(
+            AllConnectorSettings.get_gateway_amm_connector_names())
+        for dex_name in all_dex_connector_names:
+            if market_info.market.name in dex_name:
+                return True
+        return False
 
     @staticmethod
     @lru_cache(maxsize=10)
@@ -182,6 +193,9 @@ class AmmArbStrategy(StrategyPyBase):
         if not self.all_markets_ready:
             self.all_markets_ready = all([market.ready for market in self.active_markets])
             if not self.all_markets_ready:
+                for market in self.active_markets:
+                    self.logger().info(f"{market} Not Ready yet: {market.status_dict}")
+
                 if int(timestamp) % 10 == 0:  # prevent spamming by logging every 10 secs
                     unready_markets = [market for market in self.active_markets if market.ready is False]
                     for market in unready_markets:
@@ -218,13 +232,15 @@ class AmmArbStrategy(StrategyPyBase):
             ),
             order_amount=self._order_amount,
         )
+
         profitable_arb_proposals: List[ArbProposal] = [
             t.copy() for t in self._all_arb_proposals
             if t.profit_pct(
-                rate_source=self._rate_source,
+                rate_source=self._conversion_asset_price_delegate,
                 account_for_fee=True,
             ) >= self._min_profitability
         ]
+
         if len(profitable_arb_proposals) == 0:
             if self._last_no_arb_reported < self.current_timestamp - 20.:
                 self.logger().info("No arbitrage opportunity.\n" +
@@ -233,6 +249,7 @@ class AmmArbStrategy(StrategyPyBase):
             return
         await self.apply_slippage_buffers(profitable_arb_proposals)
         self.apply_budget_constraint(profitable_arb_proposals)
+
         await self.execute_arb_proposals(profitable_arb_proposals)
 
     async def apply_gateway_transaction_cancel_interval(self):
@@ -276,13 +293,14 @@ class AmmArbStrategy(StrategyPyBase):
             for arb_side in (arb_proposal.first_side, arb_proposal.second_side):
                 market = arb_side.market_info.market
                 token = arb_side.market_info.quote_asset if arb_side.is_buy else arb_side.market_info.base_asset
-                balance = market.get_available_balance(token)
+                min_required_quote_balance = self._min_required_quote_balance if arb_side.is_buy else (self._min_required_quote_balance / arb_side.order_price)
+                balance = market.get_available_balance(token) - min_required_quote_balance
                 required = arb_side.amount * arb_side.order_price if arb_side.is_buy else arb_side.amount
                 if balance < required:
                     arb_side.amount = s_decimal_zero
                     self.logger().info(f"Can't arbitrage, {market.display_name} "
                                        f"{token} balance "
-                                       f"({balance}) is below required order amount ({required}).")
+                                       f"({balance}) is below required order amount ({required}) while kept in mind the a min required balance of {min_required_quote_balance}.")
                     continue
 
     def prioritize_evm_exchanges(self, arb_proposal: ArbProposal) -> ArbProposal:
@@ -317,32 +335,43 @@ class AmmArbStrategy(StrategyPyBase):
             if not self._concurrent_orders_submission:
                 arb_proposal = self.prioritize_evm_exchanges(arb_proposal)
 
-            self.logger().info(f"Found arbitrage opportunity!: {arb_proposal}")
+            # todo what conversion_rate to get here?
+            conversion_rate = Decimal(1)  # self._conversion_asset_price_delegate.get_pair_rate() if self._conversion_asset_price_delegate else Decimal(1)
+
+            try:
+                self.logger().info(f"Found arbitrage opportunity!: {arb_proposal}, conversion rate {conversion_rate} or {Decimal(1) / conversion_rate}")
+            except Exception as e:
+                self.logger().info(f"Error in FOUND OPPORTUNITY, error: {e}")
 
             for arb_side in (arb_proposal.first_side, arb_proposal.second_side):
-                side: str = "BUY" if arb_side.is_buy else "SELL"
-                self.log_with_clock(logging.INFO,
-                                    f"Placing {side} order for {arb_side.amount} {arb_side.market_info.base_asset} "
-                                    f"at {arb_side.market_info.market.display_name} at {arb_side.order_price} price")
+                if not self._dex_orders_only or (self._dex_orders_only and self.is_gateway_market(arb_side.market_info)):
+                    side: str = "BUY" if arb_side.is_buy else "SELL"
+                    self.log_with_clock(logging.INFO,
+                                        f"Placing {side} order for {arb_side.amount} {arb_side.market_info.base_asset} "
+                                        f"at {arb_side.market_info.market.display_name} at {arb_side.order_price} price")
 
-                order_id: str = await self.place_arb_order(
-                    arb_side.market_info,
-                    arb_side.is_buy,
-                    arb_side.amount,
-                    arb_side.order_price
-                )
+                    order_id: str = await self.place_arb_order(
+                        arb_side.market_info,
+                        arb_side.is_buy,
+                        arb_side.amount,
+                        arb_side.order_price
+                    )
+                    self._order_id_to_exchange[order_id] = arb_side.market_info.market.display_name  # must be deleted after its execution
 
-                self._order_id_side_map.update({
-                    order_id: arb_side
-                })
+                    self._order_id_side_map.update({
+                        order_id: arb_side
+                    })
 
-                if not self._concurrent_orders_submission:
-                    await arb_side.completed_event.wait()
-                    if arb_side.is_failed:
-                        self.log_with_clock(logging.ERROR,
-                                            f"Order {order_id} seems to have failed in this arbitrage opportunity. "
-                                            f"Dropping Arbitrage Proposal. ")
-                        return
+                    if not self._concurrent_orders_submission:
+                        await arb_side.completed_event.wait()
+                        if arb_side.is_failed:
+                            self.log_with_clock(logging.ERROR,
+                                                f"Order {order_id} seems to have failed in this arbitrage opportunity. "
+                                                f"Dropping Arbitrage Proposal. ")
+                            return
+                else:
+                    self.logger().info(
+                        f"Placed no CEX trade to make sure the DEX follows the CEX. DEX orders only: {self._dex_orders_only}. DEX and CEX: {(self._dex_orders_only and not self.is_gateway_market(arb_side.market_info))}")
 
             await arb_proposal.wait()
 
@@ -370,8 +399,8 @@ class AmmArbStrategy(StrategyPyBase):
                     market.connector_name, market.chain, market.network, market_info.trading_pair):
                 order_price = await market.get_order_price(market_info.trading_pair, is_buy, amount, ignore_shim=True)
                 order_price *= slippage_buffer_factor
-
-        return place_order_fn(market_info, amount, market_info.market.get_taker_order_type(), order_price)
+                print(type(order_price))
+        return place_order_fn(market_info, Decimal(amount), market_info.market.get_taker_order_type(), Decimal(order_price))
 
     def ready_for_new_arb_trades(self) -> bool:
         """
@@ -397,7 +426,7 @@ class AmmArbStrategy(StrategyPyBase):
             market_1_name: str = proposal.first_side.market_info.market.display_name
             market_2_name: str = proposal.second_side.market_info.market.display_name
             profit_pct = proposal.profit_pct(
-                rate_source=self._rate_source,
+                rate_source=self._conversion_asset_price_delegate,
                 account_for_fee=True,
             )
             lines.append(f"{'    ' if indented else ''}{side1} at {market_1_name}"
@@ -405,12 +434,16 @@ class AmmArbStrategy(StrategyPyBase):
                          f"{profit_pct:.2%}")
         return lines
 
-    def get_fixed_rates_df(self):
-        columns = ["Pair", "Rate"]
+    def quotes_rate_df(self):
+        columns = ["Quotes pair", "Rate", "Binance_rate"]
         quotes_pair: str = f"{self._market_info_2.quote_asset}-{self._market_info_1.quote_asset}"
-        bases_pair: str = f"{self._market_info_2.base_asset}-{self._market_info_1.base_asset}"
-        data = [[quotes_pair, PerformanceMetrics.smart_round(self._rate_source.get_pair_rate(quotes_pair))],
-                [bases_pair, PerformanceMetrics.smart_round(self._rate_source.get_pair_rate(bases_pair))]]
+        binance_rate = None
+
+        if self._conversion_asset_price_delegate:
+            binance_rate = self._conversion_asset_price_delegate.get_pair_rate(quotes_pair)
+
+        data = [[quotes_pair, PerformanceMetrics.smart_round(self._rate_source.get_pair_rate(quotes_pair)), binance_rate]]
+
         return pd.DataFrame(data=data, columns=columns)
 
     async def format_status(self) -> str:
@@ -421,35 +454,44 @@ class AmmArbStrategy(StrategyPyBase):
 
         if self._all_arb_proposals is None:
             return "  The strategy is not ready, please try again later."
-        columns = ["Exchange", "Market", "Sell Price", "Buy Price", "Mid Price"]
+        columns = ["Exchange", "Market", "Sell Price", "Sell Conver Price", "Buy Price", "Buy Conver Price", "Mid Price"]
         data = []
         for market_info in [self._market_info_1, self._market_info_2]:
             market, trading_pair, base_asset, quote_asset = market_info
             buy_price = await market.get_quote_price(trading_pair, True, self._order_amount)
             sell_price = await market.get_quote_price(trading_pair, False, self._order_amount)
 
+            conversion_rate = self._conversion_asset_price_delegate.get_pair_rate(trading_pair)
+
             # check for unavailable price data
             buy_price = PerformanceMetrics.smart_round(Decimal(str(buy_price)), 8) if buy_price is not None else '-'
+            buy_conversion_price = PerformanceMetrics.smart_round((Decimal(str(buy_price)) * Decimal(conversion_rate)), 8) if buy_price is not None else '-'
             sell_price = PerformanceMetrics.smart_round(Decimal(str(sell_price)), 8) if sell_price is not None else '-'
+            sell_conversion_price = PerformanceMetrics.smart_round((Decimal(str(sell_price)) * Decimal(conversion_rate)), 8) if sell_price is not None else '-'
             mid_price = PerformanceMetrics.smart_round(((buy_price + sell_price) / 2), 8) if '-' not in [buy_price, sell_price] else '-'
 
             data.append([
                 market.display_name,
                 trading_pair,
                 sell_price,
+                sell_conversion_price,
                 buy_price,
+                buy_conversion_price,
                 mid_price
             ])
         markets_df = pd.DataFrame(data=data, columns=columns)
         lines = []
         lines.extend(["", "  Markets:"] + ["    " + line for line in markets_df.to_string(index=False).split("\n")])
 
-        columns = ["Exchange", "Gas Fees"]
+        columns = ["Exchange", "Gas Fees", "Converted"]
         data = []
         for market_info in [self._market_info_1, self._market_info_2]:
             if hasattr(market_info.market, "network_transaction_fee"):
                 transaction_fee: TokenAmount = getattr(market_info.market, "network_transaction_fee")
-                data.append([market_info.market.display_name, f"{transaction_fee.amount} {transaction_fee.token}"])
+                converted_transaction_fees = round(Decimal(transaction_fee.amount * self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair)),
+                                                   5) if self._conversion_asset_price_delegate else "None"
+                data.append([market_info.market.display_name, f"{transaction_fee.amount} {transaction_fee.token}", converted_transaction_fees])
+
         network_fees_df = pd.DataFrame(data=data, columns=columns)
         if len(data) > 0:
             lines.extend(
@@ -463,9 +505,9 @@ class AmmArbStrategy(StrategyPyBase):
 
         lines.extend(["", "  Profitability:"] + self.short_proposal_msg(self._all_arb_proposals))
 
-        fixed_rates_df = self.get_fixed_rates_df()
-        lines.extend(["", f"  Exchange Rates: ({str(self._rate_source)})"] +
-                     ["    " + line for line in str(fixed_rates_df).split("\n")])
+        quotes_rates_df = self.quotes_rate_df()
+        lines.extend(["", f"  Quotes Rates ({str(self._rate_source)}) (binance_price)"] +
+                     ["    " + line for line in str(quotes_rates_df).split("\n")])
 
         warning_lines = self.network_warning([self._market_info_1])
         warning_lines.extend(self.network_warning([self._market_info_2]))
@@ -497,9 +539,14 @@ class AmmArbStrategy(StrategyPyBase):
         if self.is_gateway_market(market_info):
             log_msg += f" txHash: {order_completed_event.exchange_order_id}"
         self.log_with_clock(logging.INFO, log_msg)
-        self.notify_hb_app_with_timestamp(f"Bought {order_completed_event.base_asset_amount:.8f} "
-                                          f"{order_completed_event.base_asset}-{order_completed_event.quote_asset} "
-                                          f"on {market_info.market.name}.")
+
+        conversion_rate = self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair) if self._conversion_asset_price_delegate else Decimal(1)
+        conversion_rate = conversion_rate if "USD" not in order_completed_event.quote_asset else Decimal(1)
+
+        self.notify_hb_app_with_timestamp(
+            f"Bought {order_completed_event.base_asset_amount:.8f} for {order_completed_event.quote_asset_amount:.8f} in USD {order_completed_event.quote_asset_amount * conversion_rate}"
+            f"{order_completed_event.base_asset}-{order_completed_event.quote_asset} "
+            f"on {market_info.market.name}.")
 
     def did_complete_sell_order(self, order_completed_event: SellOrderCompletedEvent):
         self.set_order_completed(order_id=order_completed_event.order_id)
@@ -511,9 +558,14 @@ class AmmArbStrategy(StrategyPyBase):
         if self.is_gateway_market(market_info):
             log_msg += f" txHash: {order_completed_event.exchange_order_id}"
         self.log_with_clock(logging.INFO, log_msg)
-        self.notify_hb_app_with_timestamp(f"Sold {order_completed_event.base_asset_amount:.8f} "
-                                          f"{order_completed_event.base_asset}-{order_completed_event.quote_asset} "
-                                          f"on {market_info.market.name}.")
+
+        conversion_rate = self._conversion_asset_price_delegate.get_pair_rate(market_info.trading_pair) if self._conversion_asset_price_delegate else Decimal(1)
+        conversion_rate = conversion_rate if "USD" not in order_completed_event.quote_asset else Decimal(1)
+
+        self.notify_hb_app_with_timestamp(
+            f"Sold {order_completed_event.base_asset_amount:.8f} for {order_completed_event.quote_asset_amount:.8f} in USD {order_completed_event.quote_asset_amount * conversion_rate}"
+            f"{order_completed_event.base_asset}-{order_completed_event.quote_asset} "
+            f"on {market_info.market.name}.")
 
     def did_fail_order(self, order_failed_event: MarketOrderFailureEvent):
         self.set_order_failed(order_id=order_failed_event.order_id)
