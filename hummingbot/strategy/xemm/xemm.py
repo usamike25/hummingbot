@@ -934,7 +934,7 @@ class XEMMStrategy(StrategyPyBase):
 
         # check open hedge amount. this is not exchange specific
         for hedge_id, info in self.hedge_trades.items():
-            if info["status"] in ["failed", "in_process"]:
+            if info["status"] in ["failed", "in_process", "processed"]:
                 hedge_is_buy = info["is_buy"]
                 hedge_amount = info["amount"]
                 if hedge_is_buy:
