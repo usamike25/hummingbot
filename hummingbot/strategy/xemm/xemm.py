@@ -276,7 +276,7 @@ class XEMMStrategy(StrategyPyBase):
             return
 
         for exchange, token in self.markets.items():
-            if self.time_out_dict[exchange]:
+            if self.time_out_dict[exchange] or not self.exchange_stats[exchange]["maker"]:
                 continue
 
             pair = list(token)[0]
@@ -426,7 +426,7 @@ class XEMMStrategy(StrategyPyBase):
         optimize_order = self.profit_settings[exchange]["optimize_order"]
 
         for ex, token in self.markets.items():
-            if ex != exchange:
+            if ex != exchange and self.exchange_stats[ex]["taker"]:
                 pair_ex = list(token)[0]
 
                 available_quote = self.exchange_info[ex]["quote"]
@@ -514,7 +514,7 @@ class XEMMStrategy(StrategyPyBase):
         #  create possible_prices_list
         # todo: this can be optimized, as not all sell orders are placed on the same exchange
         for ex, token in self.markets.items():
-            if ex != exchange:
+            if ex != exchange and self.exchange_stats[ex]["taker"]:
                 pair_ex = list(token)[0]
                 additional_amount_base = s_decimal_zero
                 for i in range(self.market_making_settings["number_of_orders"]):
@@ -665,8 +665,9 @@ class XEMMStrategy(StrategyPyBase):
 
         new_optimal_quotes = {}
         for exchange, token in self.markets.items():
+            if not self.exchange_stats[exchange]["maker"]:
+                continue
             pair = list(token)[0]
-            base, quote = pair.split("-")
             base_amount = self.exchange_info[exchange]["base"]  # AVAX, BTC. ETH,....
             quote_amount = self.exchange_info[exchange]["quote"]  # USDT, USD,.....
             mid_price = self.connectors[exchange].get_mid_price(pair)
@@ -718,6 +719,9 @@ class XEMMStrategy(StrategyPyBase):
         place_cancel_dict = {}
         order_sides = ["buy_orders", "sell_orders"]
         for exchange, token in self.markets.items():
+            if not self.exchange_stats[exchange]["maker"]:
+                continue
+
             for order_side in order_sides:
                 for index, (old_order_entry, new_order_entry) in enumerate(zip(self.optimal_quotes[exchange][order_side], new_optimal_quotes[exchange][order_side])):
 
