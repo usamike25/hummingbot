@@ -218,7 +218,7 @@ class XEMMStrategy(StrategyPyBase):
         if not self._base_asset_amount:
             self._base_asset_amount = base_amount
 
-        if 0.5 < (abs(base_amount - self._base_asset_amount) / self._base_asset_amount) * 100:
+        if not self._base_asset_amount == s_decimal_zero and 0.5 < (abs(base_amount - self._base_asset_amount) / self._base_asset_amount) * 100:
             msg = f"Base asset drift detected: {self._base_asset_amount} -> {base_amount}"
             self.logger().info(msg)
             self.notify_hb_app_with_timestamp(msg)
