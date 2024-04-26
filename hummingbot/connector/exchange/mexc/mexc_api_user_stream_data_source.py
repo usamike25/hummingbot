@@ -114,7 +114,8 @@ class MexcAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 method=RESTMethod.PUT,
                 return_err=True,
                 throttler_limit_id=CONSTANTS.MEXC_USER_STREAM_PATH_URL,
-                headers=self._auth.header_for_authentication()
+                headers=self._auth.header_for_authentication(),
+                is_auth_required=True
             )
 
             if "code" in data:
@@ -134,7 +135,14 @@ class MexcAPIUserStreamDataSource(UserStreamTrackerDataSource):
             while True:
                 now = int(time.time())
                 if self._current_listen_key is None:
-                    self._current_listen_key = await self._get_listen_key()
+                    try:
+                        self._current_listen_key = await self._get_listen_key()
+                    except Exception as e:
+                        self.logger().error(f"Can't obtain listen key due to an error on MEXC side: {e}", exc_info=True)
+                        await self._sleep(1.0)
+                        # we're going to make infinite number of tries, as it would be impossible to trade w/o websocket
+                        # connection; try/except block has 2 await statements, so other coroutines would still advance
+                        continue
                     self.logger().info(f"Successfully obtained listen key {self._current_listen_key}")
                     self._listen_key_initialized_event.set()
                     self._last_listen_key_ping_ts = int(time.time())
@@ -150,6 +158,7 @@ class MexcAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 else:
                     await self._sleep(self.LISTEN_KEY_KEEP_ALIVE_INTERVAL)
         finally:
+            # TODO (dmitry): do we need `finally` block here?
             self._current_listen_key = None
             self._listen_key_initialized_event.clear()
 
