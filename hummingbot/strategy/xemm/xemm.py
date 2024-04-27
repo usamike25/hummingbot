@@ -88,8 +88,7 @@ class XEMMStrategy(StrategyPyBase):
                     connectors: dict,
                     max_order_size_quote: Decimal,
                     volatility_to_spread_multiplier: Decimal,
-                    idle_base_amount: Decimal,
-                    idle_quote_amount: Decimal,
+                    idle_amount_in_base: Decimal,
                     mode=str,
                     market_making_settings=dict,
                     profit_settings=dict
@@ -102,8 +101,7 @@ class XEMMStrategy(StrategyPyBase):
         self.markets = {ex: {stats["pair"]} for ex, stats in self.exchange_stats.items()}
         self.max_order_size_quote = max_order_size_quote  # amount in USD for each order
         self.volatility_to_spread_multiplier = volatility_to_spread_multiplier
-        self.idle_quote_amount = idle_quote_amount
-        self.idle_base_amount = idle_base_amount
+        self.idle_amount_in_base = idle_amount_in_base
         self.min_profit_dict = {}
         self.max_order_age_seconds = 180
         self.min_notional_size_dict = {}  # "kucoin": 1 # custom min_notational. leave blank if not required
@@ -137,7 +135,7 @@ class XEMMStrategy(StrategyPyBase):
         self.latency_roundtrip = {}
         self.order_creation_events = {}  # this is used to await pending create orders in order to properly cancel them
 
-        self._base_asset_amount = None
+        self._base_asset_amount = deque(maxlen=3)
         self._base_asset_amount_last_checked = 0
 
         self.add_markets([self.connectors[ex] for ex in self.markets.keys()])
@@ -203,6 +201,9 @@ class XEMMStrategy(StrategyPyBase):
         self.on_tick_runtime = ((time.perf_counter() - start_time) * 1000)
 
     def check_for_base_asset_drift(self):
+        def is_change_within_threshold(value1, value2, threshold=0.5):
+            return abs(value1 - value2) / value2 * 100 <= threshold
+
         self._base_asset_amount_last_checked = self.current_timestamp
         base_amount = 0
         for exchange, token in self.markets.items():
@@ -215,10 +216,10 @@ class XEMMStrategy(StrategyPyBase):
             if hedge_trade_dict["status"] in ["in_process", "failed"]:
                 base_amount += hedge_trade_dict["amount"] if hedge_trade_dict["is_buy"] else -hedge_trade_dict["amount"]
 
-        if not self._base_asset_amount:
-            self._base_asset_amount = base_amount
+        if not len(self._base_asset_amount) == 3:
+            self._base_asset_amount.append(base_amount)
 
-        if not self._base_asset_amount == s_decimal_zero and 0.5 < (abs(base_amount - self._base_asset_amount) / self._base_asset_amount) * 100:
+        elif not is_change_within_threshold(self._base_asset_amount[0], self._base_asset_amount[2]) and not is_change_within_threshold(self._base_asset_amount[1], self._base_asset_amount[2]):
             msg = f"Base asset drift detected: {self._base_asset_amount} -> {base_amount}"
             self.logger().info(msg)
             self.notify_hb_app_with_timestamp(msg)
@@ -498,6 +499,7 @@ class XEMMStrategy(StrategyPyBase):
         return buy_orders, sell_orders
 
     def get_optimal_orders_lists_market_making(self, exchange, pair, base_amount, quote_amount, mid):
+
         buy_orders = []
         sell_orders = []
 
@@ -518,13 +520,14 @@ class XEMMStrategy(StrategyPyBase):
                 pair_ex = list(token)[0]
                 additional_amount_base = s_decimal_zero
                 for i in range(self.market_making_settings["number_of_orders"]):
-                    order_amount_base = self.market_making_settings["order_amounts"][i]
-                    order_amount_quote = order_amount_base * mid
+                    order_amount_base = self.market_making_settings["order_amounts_quote"][i] / mid
+                    order_amount_quote = self.market_making_settings["order_amounts_quote"][i]
 
                     additional_amount_quote = additional_amount_base * mid
+                    top_depth_tolerance_taker_factor = Decimal("1") + (self.market_making_settings["top_depth_tolerance_taker_pct"][i] / Decimal("100"))
 
-                    quote_amount_buy_order = min((self.exchange_info[ex]["quote"] / mid), order_amount_base) + additional_amount_quote
-                    base_amount_sell_order = min(self.exchange_info[ex]["base"], (order_amount_quote / mid)) + additional_amount_base
+                    quote_amount_buy_order = (min((self.exchange_info[ex]["quote"] / mid), order_amount_base) + additional_amount_quote) * top_depth_tolerance_taker_factor
+                    base_amount_sell_order = (min(self.exchange_info[ex]["base"], (order_amount_quote / mid)) + additional_amount_base) * top_depth_tolerance_taker_factor
 
                     # this is the price for a sell order
                     possible_price_bid = self.connectors[ex].get_price_for_volume(pair_ex, False, base_amount_sell_order).result_price
@@ -558,7 +561,7 @@ class XEMMStrategy(StrategyPyBase):
                 available_quote = exchange_info[hedge_exchange_ask]["quote"]
                 maker_ask = hedge_price_ask * (Decimal(1) + adjusted_vol + maker_fee + taker_fee + min_profit)
 
-                order_amount_base = min(self.market_making_settings["order_amounts"][i], base_amount)
+                order_amount_base = min(self.market_making_settings["order_amounts_quote"][i] / mid, base_amount)
 
                 if order_amount_base <= available_quote / hedge_price_ask:
                     if self.is_above_min_order_size(exchange, order_amount_base, maker_ask) and self.is_above_min_order_size(hedge_exchange_ask, order_amount_base, hedge_price_ask):
@@ -594,7 +597,7 @@ class XEMMStrategy(StrategyPyBase):
                 available_base = exchange_info[hedge_exchange_bid]["base"]
                 maker_bid = hedge_price_bid * (Decimal(1) - adjusted_vol - maker_fee - taker_fee - min_profit)
 
-                order_amount_base = min(self.market_making_settings["order_amounts"][i], quote_amount / mid)
+                order_amount_base = min(self.market_making_settings["order_amounts_quote"][i] / mid, quote_amount / mid)
 
                 if order_amount_base <= available_base:
                     if self.is_above_min_order_size(exchange, order_amount_base, maker_bid) and self.is_above_min_order_size(hedge_exchange_bid, order_amount_base, hedge_price_bid):
@@ -718,6 +721,8 @@ class XEMMStrategy(StrategyPyBase):
     def compare_old_with_new_optimal_quotes_market_making(self, new_optimal_quotes):
         place_cancel_dict = {}
         order_sides = ["buy_orders", "sell_orders"]
+        tolerance = self.market_making_settings["Cancel_order_tolerance"]
+        cancel_order_threshold = self.market_making_settings["Cancel_order_threshold"]
         for exchange, token in self.markets.items():
             if not self.exchange_stats[exchange]["maker"]:
                 continue
@@ -745,14 +750,14 @@ class XEMMStrategy(StrategyPyBase):
                             continue
 
                         if order_side == "buy_orders":
-                            threshold_max = new_order_entry["price"] * (Decimal(1) - Decimal(0.0008))
+                            threshold_max = new_order_entry["price"] * (Decimal(1) - cancel_order_threshold)
                         else:
-                            threshold_max = new_order_entry["price"] * (Decimal(1) + Decimal(0.0008))
+                            threshold_max = new_order_entry["price"] * (Decimal(1) + cancel_order_threshold)
 
                         keep_order = False
                         if hedge_exchange == new_order_entry["hedge_exchange"] and (
-                                (order_side == "buy_orders" and new_order_entry["price"] >= price > threshold_max) or (
-                                order_side == "sell_orders" and new_order_entry["price"] <= price < threshold_max)):
+                                (order_side == "buy_orders" and new_order_entry["price"] + tolerance >= price > threshold_max) or (
+                                order_side == "sell_orders" and new_order_entry["price"] - tolerance <= price < threshold_max)):
                             # keep order
                             new_optimal_quotes[exchange][order_side][index] = {"amount": old_order_entry["amount"],
                                                                                "price": old_order_entry["price"],
@@ -1002,15 +1007,15 @@ class XEMMStrategy(StrategyPyBase):
                         balance_base -= hedge_amount
 
             # apply idle amounts
-            if balance_base <= self.idle_base_amount:
+            if balance_base <= self.idle_amount_in_base:
                 balance_base = Decimal(0)
             else:
-                balance_base -= self.idle_base_amount
+                balance_base -= self.idle_amount_in_base
 
-            if balance_quote <= self.idle_quote_amount:
+            if balance_quote <= self.idle_amount_in_base / mid_price:
                 balance_quote = Decimal(0)
             else:
-                balance_quote -= self.idle_quote_amount
+                balance_quote -= self.idle_amount_in_base / mid_price
 
             self.exchange_info[exchange] = {"base": balance_base,
                                             "quote": balance_quote,
