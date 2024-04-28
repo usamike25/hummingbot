@@ -24,8 +24,7 @@ def start(self):
     mode = xemm_config_map.get("mode").value
     max_order_size_quote = xemm_config_map.get("max_order_size_quote").value
     volatility_to_spread_multiplier = xemm_config_map.get("volatility_to_spread_multiplier").value
-    idle_base_amount = xemm_config_map.get("idle_base_amount").value
-    idle_quote_amount = xemm_config_map.get("idle_quote_amount").value
+    idle_amount_in_base = xemm_config_map.get("idle_amount_in_base").value
 
     self._initialize_markets([(connector, [connector_dict["pair"]]) for connector, connector_dict in exchange_stats.items()])
 
@@ -36,8 +35,7 @@ def start(self):
                               connectors=connectors,
                               max_order_size_quote=max_order_size_quote,
                               volatility_to_spread_multiplier=volatility_to_spread_multiplier,
-                              idle_base_amount=idle_base_amount,
-                              idle_quote_amount=idle_quote_amount,
+                              idle_amount_in_base=idle_amount_in_base,
                               mode=mode,
                               market_making_settings=market_making_settings,
                               profit_settings=profit_settings

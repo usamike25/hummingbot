@@ -164,8 +164,6 @@ class XEMMStrategy(StrategyPyBase):
             self.volatility_indicator[exchange] = {}
             self.volatility_indicator[exchange][pair] = VolatilityIndicator2(OrderBookAssetPriceDelegate(self.connectors[exchange], pair))
 
-            # self._base_asset_amount = self.connectors[exchange].get_available_balance(base)
-
         self.status_ready = True
 
     def tick(self, timestamp: float):
@@ -223,7 +221,7 @@ class XEMMStrategy(StrategyPyBase):
             msg = f"Base asset drift detected: {self._base_asset_amount} -> {base_amount}"
             self.logger().info(msg)
             self.notify_hb_app_with_timestamp(msg)
-        self._base_asset_amount = base_amount
+        self._base_asset_amount.append(base_amount)
 
     def buy(self,
             connector_name: str,
@@ -722,7 +720,7 @@ class XEMMStrategy(StrategyPyBase):
         place_cancel_dict = {}
         order_sides = ["buy_orders", "sell_orders"]
         tolerance = self.market_making_settings["Cancel_order_tolerance"]
-        cancel_order_threshold = self.market_making_settings["Cancel_order_threshold"]
+        cancel_order_threshold = Decimal(self.market_making_settings["Cancel_order_threshold"])
         for exchange, token in self.markets.items():
             if not self.exchange_stats[exchange]["maker"]:
                 continue

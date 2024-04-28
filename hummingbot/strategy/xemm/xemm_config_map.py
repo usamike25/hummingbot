@@ -66,16 +66,9 @@ xemm_config_map = {
         default=Decimal("1"),
         validator=lambda v: validate_decimal(v),
         type_str="decimal"),
-    "idle_base_amount": ConfigVar(
-        key="idle_base_amount",
-        prompt="idle_base_amount ? >>>",
-        prompt_on_new=True,
-        default=Decimal("0"),
-        validator=lambda v: validate_decimal(v),
-        type_str="decimal"),
-    "idle_quote_amount": ConfigVar(
-        key="idle_quote_amount",
-        prompt="idle_quote_amount ? >>>",
+    "idle_amount_in_base": ConfigVar(
+        key="idle_amount_in_base",
+        prompt="idle_amount_in_base ? >>>",
         prompt_on_new=True,
         default=Decimal("0"),
         validator=lambda v: validate_decimal(v),
