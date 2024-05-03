@@ -9,6 +9,7 @@ from typing import Any, List
 
 import numpy as np
 import pandas as pd
+import urllib3
 from async_timeout import timeout
 
 from hummingbot.connector.connector_base import ConnectorBase
@@ -34,6 +35,7 @@ from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.order_book_asset_price_delegate import OrderBookAssetPriceDelegate
 from hummingbot.strategy.strategy_py_base import StrategyPyBase
+from hummingbot.strategy.strategy_reporter import StrategyReporter
 from hummingbot.strategy.xemm.xemm_utils import ActiveOrder, VolatilityIndicator2
 
 # import sys
@@ -88,26 +90,41 @@ class XEMMStrategy(StrategyPyBase):
                     connectors: dict,
                     max_order_size_quote: Decimal,
                     volatility_to_spread_multiplier: Decimal,
-                    idle_amount_in_base: Decimal,
-                    mode=str,
-                    market_making_settings=dict,
-                    profit_settings=dict
+                    idle_amount_in_quote: Decimal,
+                    mode: str,
+                    market_making_settings: dict,
+                    profit_settings: dict,
+                    report_to_dbs: bool,
+                    hedge_order_slippage_tolerance: Decimal,
                     ):
         self.exchange_stats = exchange_stats
         self.connectors = connectors
         self.mode = mode
         self.market_making_settings = market_making_settings
         self.profit_settings = profit_settings
+        self.report_to_dbs = report_to_dbs
+        self.hedge_order_slippage_tolerance = hedge_order_slippage_tolerance
         self.markets = {ex: {stats["pair"]} for ex, stats in self.exchange_stats.items()}
         self.max_order_size_quote = max_order_size_quote  # amount in USD for each order
         self.volatility_to_spread_multiplier = volatility_to_spread_multiplier
-        self.idle_amount_in_base = idle_amount_in_base
+        self.idle_amount_in_quote = idle_amount_in_quote
         self.min_profit_dict = {}
         self.max_order_age_seconds = 180
         self.min_notional_size_dict = {}  # "kucoin": 1 # custom min_notational. leave blank if not required
+        self.last_recorded_mid_prices = {}
 
         self.active_maker_orders_ids = ActiveOrder()
         self.active_taker_orders_ids = ActiveOrder()
+
+        self.reporter = StrategyReporter(sb_order_tracker=self._sb_order_tracker,
+                                         market_pairs=self.all_trading_pair_tuples,
+                                         bot_identifier=1,
+                                         monitor_market_data=True,
+                                         monitor_balance_data=True,
+                                         monitor_open_order_data=True,
+                                         asset_price_delegate=None,
+                                         bucket="new",
+                                         interval=int(10)) if self.report_to_dbs else None
 
         # convert floats to Decimal
         for ex, ex_dict in self.exchange_stats.items():
@@ -139,6 +156,14 @@ class XEMMStrategy(StrategyPyBase):
         self._base_asset_amount_last_checked = 0
 
         self.add_markets([self.connectors[ex] for ex in self.markets.keys()])
+
+    @property
+    def all_trading_pair_tuples(self) -> list:
+        all_trading_pair_tuples_list = []
+        for exchange, trading_pairs in self.markets.items():
+            for trading_pair in trading_pairs:
+                all_trading_pair_tuples_list.append(MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1]))
+        return all_trading_pair_tuples_list
 
     @property
     def active_maker_limit_orders(self):
@@ -196,7 +221,21 @@ class XEMMStrategy(StrategyPyBase):
         if self.current_timestamp > self._base_asset_amount_last_checked + 10:
             self.check_for_base_asset_drift()
 
+        self.record_last_recorded_mid_prices()
+
         self.on_tick_runtime = ((time.perf_counter() - start_time) * 1000)
+
+    def record_last_recorded_mid_prices(self):
+        for exchange, token in self.markets.items():
+            pair = list(token)[0]
+            mid_price = self.connectors[exchange].get_mid_price(pair)
+        self.last_recorded_mid_prices[exchange] = mid_price
+
+    def start(self, clock: Clock, timestamp: float):
+        if self.report_to_dbs:
+            self.reporter.start()
+        super().start(clock, timestamp)
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def check_for_base_asset_drift(self):
         def is_change_within_threshold(value1, value2, threshold=0.5):
@@ -218,7 +257,7 @@ class XEMMStrategy(StrategyPyBase):
             self._base_asset_amount.append(base_amount)
 
         elif not is_change_within_threshold(self._base_asset_amount[0], self._base_asset_amount[2]) and not is_change_within_threshold(self._base_asset_amount[1], self._base_asset_amount[2]):
-            msg = f"Base asset drift detected: {self._base_asset_amount} -> {base_amount}"
+            msg = f"Base asset drift detected: {self._base_asset_amount[0]} -> {self._base_asset_amount[2]}"
             self.logger().info(msg)
             self.notify_hb_app_with_timestamp(msg)
         self._base_asset_amount.append(base_amount)
@@ -1004,16 +1043,17 @@ class XEMMStrategy(StrategyPyBase):
                     else:
                         balance_base -= hedge_amount
 
-            # apply idle amounts
-            if balance_base <= self.idle_amount_in_base:
+            # apply idle amounts and slippage buffer for Limit hedge orders
+            # todo: this is not perfect, as it does not take into account the actual amount that is used for the hedge, but uses the total amount
+            if balance_base <= (self.idle_amount_in_quote / mid_price) + (balance_base * self.hedge_order_slippage_tolerance):
                 balance_base = Decimal(0)
             else:
-                balance_base -= self.idle_amount_in_base
+                balance_base -= (self.idle_amount_in_quote / mid_price) + (balance_base * self.hedge_order_slippage_tolerance)
 
-            if balance_quote <= self.idle_amount_in_base / mid_price:
+            if balance_quote <= self.idle_amount_in_quote + (balance_quote * self.hedge_order_slippage_tolerance):
                 balance_quote = Decimal(0)
             else:
-                balance_quote -= self.idle_amount_in_base / mid_price
+                balance_quote -= self.idle_amount_in_quote + (balance_quote * self.hedge_order_slippage_tolerance)
 
             self.exchange_info[exchange] = {"base": balance_base,
                                             "quote": balance_quote,
@@ -1141,6 +1181,7 @@ class XEMMStrategy(StrategyPyBase):
         hedge_pair = list(self.markets[hedge_exchange])[0]
         base, quote = hedge_pair.split("-")
         mid_price = self.connectors[hedge_exchange].get_mid_price(hedge_pair)
+        best_ba_price = self.connectors[hedge_exchange].get_price_for_volume(hedge_pair, hedge_order_is_buy, amount).result_price
         quantized_amount = self.connectors[hedge_exchange].quantize_order_amount(hedge_pair, amount)
         is_above_min_os = self.is_above_min_order_size(hedge_exchange, quantized_amount, mid_price)
         is_perp = self.is_perp[hedge_exchange]
@@ -1174,9 +1215,11 @@ class XEMMStrategy(StrategyPyBase):
             await safe_gather(*async_cancellation_tasks)
 
         if hedge_order_is_buy:
-            order_id_1 = self.buy(hedge_exchange, hedge_pair, quantized_amount, OrderType.MARKET, mid_price)
+            price = best_ba_price * (Decimal("1") + self.hedge_order_slippage_tolerance)
+            order_id_1 = self.buy(hedge_exchange, hedge_pair, quantized_amount, OrderType.LIMIT, price)
         else:
-            order_id_1 = self.sell(hedge_exchange, hedge_pair, quantized_amount, OrderType.MARKET, mid_price)
+            price = best_ba_price * (Decimal("1") - self.hedge_order_slippage_tolerance)
+            order_id_1 = self.sell(hedge_exchange, hedge_pair, quantized_amount, OrderType.LIMIT, price)
 
         self.logger().info(
             f"execute_hedge: placed hedge {'buy' if hedge_order_is_buy else 'sell'} "
@@ -1528,11 +1571,17 @@ class XEMMStrategy(StrategyPyBase):
         # handle if maker order
         if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
+            trading_pair = event.trading_pair
             self.logger().info(f"Filled maker {event.trade_type} order for {event.amount} with price: {event.price} exchange: {exchange}")
 
             # hedge trade
             hedge_exchange = self.maker_order_id_to_hedge_exchange[event.order_id]
             safe_ensure_future(self.place_hedge(event, hedge_exchange))
+
+            market_trading_pair_tuple = MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1])
+
+            if self.report_to_dbs:
+                safe_ensure_future(self.reporter.send_order_fill_data(market_trading_pair_tuple, event, self.last_recorded_mid_prices.get(exchange)))
 
     def handle_order_complete_event(self, event):
         # handle if maker order
@@ -1620,6 +1669,8 @@ class XEMMStrategy(StrategyPyBase):
         """
         Without this functionality, the network iterator will continue running forever after stopping the strategy
         """
+        if self.report_to_dbs:
+            self.reporter.stop()
         super().stop(clock)
 
         for exchange, token in self.markets.items():

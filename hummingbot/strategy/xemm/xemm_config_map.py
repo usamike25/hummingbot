@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from hummingbot.client.config.config_validators import validate_decimal, validate_market_trading_pair
+from hummingbot.client.config.config_validators import validate_bool, validate_decimal, validate_market_trading_pair
 from hummingbot.client.config.config_var import ConfigVar
 from hummingbot.client.settings import AllConnectorSettings, required_exchanges, requried_connector_trading_pairs
 
@@ -66,11 +66,25 @@ xemm_config_map = {
         default=Decimal("1"),
         validator=lambda v: validate_decimal(v),
         type_str="decimal"),
-    "idle_amount_in_base": ConfigVar(
-        key="idle_amount_in_base",
-        prompt="idle_amount_in_base ? >>>",
+    "idle_amount_in_quote": ConfigVar(
+        key="idle_amount_in_quote",
+        prompt="idle_amount_in_quote ? >>>",
         prompt_on_new=True,
         default=Decimal("0"),
+        validator=lambda v: validate_decimal(v),
+        type_str="decimal"),
+    "report_to_dbs": ConfigVar(
+        key="report_to_dbs",
+        prompt="report_to_dbs ? >>>",
+        prompt_on_new=True,
+        default=False,
+        validator=lambda v: validate_bool(v),
+        type_str="bool"),
+    "hedge_order_slippage_tolerance": ConfigVar(
+        key="hedge_order_slippage_tolerance",
+        prompt="hedge_order_slippage_tolerance ? >>>",
+        prompt_on_new=True,
+        default=Decimal("0.01"),
         validator=lambda v: validate_decimal(v),
         type_str="decimal"),
 }

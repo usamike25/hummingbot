@@ -13,6 +13,7 @@
 # from hummingbot.strategy.maker_taker_market_pair import MakerTakerMarketPair
 # from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 #
+
 from hummingbot.strategy.xemm.xemm import XEMMStrategy
 from hummingbot.strategy.xemm.xemm_config_map import xemm_config_map
 
@@ -24,7 +25,9 @@ def start(self):
     mode = xemm_config_map.get("mode").value
     max_order_size_quote = xemm_config_map.get("max_order_size_quote").value
     volatility_to_spread_multiplier = xemm_config_map.get("volatility_to_spread_multiplier").value
-    idle_amount_in_base = xemm_config_map.get("idle_amount_in_base").value
+    idle_amount_in_quote = xemm_config_map.get("idle_amount_in_quote").value
+    report_to_dbs = xemm_config_map.get("report_to_dbs").value
+    hedge_order_slippage_tolerance = xemm_config_map.get("hedge_order_slippage_tolerance").value
 
     self._initialize_markets([(connector, [connector_dict["pair"]]) for connector, connector_dict in exchange_stats.items()])
 
@@ -35,8 +38,10 @@ def start(self):
                               connectors=connectors,
                               max_order_size_quote=max_order_size_quote,
                               volatility_to_spread_multiplier=volatility_to_spread_multiplier,
-                              idle_amount_in_base=idle_amount_in_base,
+                              idle_amount_in_quote=idle_amount_in_quote,
                               mode=mode,
                               market_making_settings=market_making_settings,
-                              profit_settings=profit_settings
+                              profit_settings=profit_settings,
+                              report_to_dbs=report_to_dbs,
+                              hedge_order_slippage_tolerance=hedge_order_slippage_tolerance
                               )

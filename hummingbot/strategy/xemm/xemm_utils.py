@@ -9,7 +9,7 @@ from hummingbot.core.data_type.common import PriceType
 
 class ActiveOrder:
     def __init__(self):
-        self.buffer_size = 200
+        self.buffer_size = 2000
         self.data = {}  # for active lookup {order_id: exchange}
         self.deleted_data = {}  # for secondary lookup
 

@@ -21,7 +21,7 @@ market_making_settings:
   Cancel_order_tolerance: 0        # below min profitability
   order_amounts_quote: [ 100, 200 ]
   min_profitability: [ 0.002, 0.0025 ]
-  top_depth_tolerance_taker_pct: [ 10, 20 ]  # not implemented
+  top_depth_tolerance_taker_pct: [ 10, 20 ]
   inventory_skew_enabled: [ True, True ] # not implemented
   optimize_order: [ False, False ]
   inventory_range_allowance_pct: [ 0.1, 0.2 ] # not implemented
@@ -33,5 +33,9 @@ max_order_size_quote: null
 
 volatility_to_spread_multiplier: null
 
-idle_amount_in_base: null
+idle_amount_in_quote: null
+
+report_to_dbs: False
+
+hedge_order_slippage_tolerance: 0.005
 
