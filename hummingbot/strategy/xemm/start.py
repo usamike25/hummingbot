@@ -28,6 +28,12 @@ def start(self):
     idle_amount_in_quote = xemm_config_map.get("idle_amount_in_quote").value
     report_to_dbs = xemm_config_map.get("report_to_dbs").value
     hedge_order_slippage_tolerance = xemm_config_map.get("hedge_order_slippage_tolerance").value
+    bucket = xemm_config_map.get("bucket").value
+    interval = xemm_config_map.get("interval").value
+    bot_identifier = xemm_config_map.get("bot_identifier").value
+    monitor_open_order_data = xemm_config_map.get("monitor_open_order_data").value
+    monitor_balance_data = xemm_config_map.get("monitor_balance_data").value
+    monitor_market_data = xemm_config_map.get("monitor_market_data").value
 
     self._initialize_markets([(connector, [connector_dict["pair"]]) for connector, connector_dict in exchange_stats.items()])
 
@@ -43,5 +49,12 @@ def start(self):
                               market_making_settings=market_making_settings,
                               profit_settings=profit_settings,
                               report_to_dbs=report_to_dbs,
-                              hedge_order_slippage_tolerance=hedge_order_slippage_tolerance
+                              hedge_order_slippage_tolerance=hedge_order_slippage_tolerance,
+                              bucket=bucket,
+                              interval=interval,
+                              bot_identifier=bot_identifier,
+                              monitor_open_order_data=monitor_open_order_data,
+                              monitor_balance_data=monitor_balance_data,
+                              monitor_market_data=monitor_market_data
+
                               )

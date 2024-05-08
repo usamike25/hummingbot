@@ -96,6 +96,12 @@ class XEMMStrategy(StrategyPyBase):
                     profit_settings: dict,
                     report_to_dbs: bool,
                     hedge_order_slippage_tolerance: Decimal,
+                    bucket: str,
+                    interval: Decimal,
+                    bot_identifier: Decimal,
+                    monitor_open_order_data: bool,
+                    monitor_balance_data: bool,
+                    monitor_market_data: bool
                     ):
         self.exchange_stats = exchange_stats
         self.connectors = connectors
@@ -104,6 +110,11 @@ class XEMMStrategy(StrategyPyBase):
         self.profit_settings = profit_settings
         self.report_to_dbs = report_to_dbs
         self.hedge_order_slippage_tolerance = hedge_order_slippage_tolerance
+        self.interval = interval
+        self.bot_identifier = bot_identifier
+        self.monitor_open_order_data = monitor_open_order_data
+        self.monitor_balance_data = monitor_balance_data
+        self.monitor_market_data = monitor_market_data
         self.markets = {ex: {stats["pair"]} for ex, stats in self.exchange_stats.items()}
         self.max_order_size_quote = max_order_size_quote  # amount in USD for each order
         self.volatility_to_spread_multiplier = volatility_to_spread_multiplier
@@ -118,13 +129,13 @@ class XEMMStrategy(StrategyPyBase):
 
         self.reporter = StrategyReporter(sb_order_tracker=self._sb_order_tracker,
                                          market_pairs=self.all_trading_pair_tuples,
-                                         bot_identifier=1,
-                                         monitor_market_data=True,
-                                         monitor_balance_data=True,
-                                         monitor_open_order_data=True,
+                                         bot_identifier=self.bot_identifier,
+                                         monitor_market_data=self.monitor_market_data,
+                                         monitor_balance_data=self.monitor_balance_data,
+                                         monitor_open_order_data=self.monitor_open_order_data,
                                          asset_price_delegate=None,
-                                         bucket="new",
-                                         interval=int(10)) if self.report_to_dbs else None
+                                         bucket=self.bucket,
+                                         interval=int(self.interval)) if self.report_to_dbs else None
 
         # convert floats to Decimal
         for ex, ex_dict in self.exchange_stats.items():

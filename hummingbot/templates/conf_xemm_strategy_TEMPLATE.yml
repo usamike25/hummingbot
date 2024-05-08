@@ -35,7 +35,14 @@ volatility_to_spread_multiplier: null
 
 idle_amount_in_quote: null
 
+hedge_order_slippage_tolerance: 0.005
+
 report_to_dbs: False
 
-hedge_order_slippage_tolerance: 0.005
+bucket: null
+interval: null
+bot_identifier: null
+monitor_open_order_data: null
+monitor_balance_data: null
+monitor_market_data: null
 

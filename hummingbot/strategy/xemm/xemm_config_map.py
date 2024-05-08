@@ -87,4 +87,47 @@ xemm_config_map = {
         default=Decimal("0.01"),
         validator=lambda v: validate_decimal(v),
         type_str="decimal"),
+    "bucket": ConfigVar(
+        key="bucket",
+        prompt="bucket ? >>>",
+        prompt_on_new=True,
+        default="new",
+        # validator=lambda v: validate_bool(v),
+        type_str="str"),
+    "interval": ConfigVar(
+        key="interval",
+        prompt="interval ? >>>",
+        prompt_on_new=True,
+        default=Decimal("10"),
+        validator=lambda v: validate_decimal(v),
+        type_str="decimal"),
+    "bot_identifier": ConfigVar(
+        key="bot_identifier",
+        prompt="bot_identifier ? >>>",
+        prompt_on_new=True,
+        default=Decimal("0"),
+        validator=lambda v: validate_decimal(v),
+        type_str="decimal"),
+    "monitor_open_order_data": ConfigVar(
+        key="monitor_open_order_data",
+        prompt="monitor_open_order_data ? >>>",
+        prompt_on_new=True,
+        default=True,
+        validator=lambda v: validate_bool(v),
+        type_str="bool"),
+    "monitor_balance_data": ConfigVar(
+        key="monitor_balance_data",
+        prompt="monitor_balance_data ? >>>",
+        prompt_on_new=True,
+        default=True,
+        validator=lambda v: validate_bool(v),
+        type_str="bool"),
+    "monitor_market_data": ConfigVar(
+        key="monitor_market_data",
+        prompt="monitor_market_data ? >>>",
+        prompt_on_new=True,
+        default=True,
+        validator=lambda v: validate_bool(v),
+        type_str="bool"),
+
 }
