@@ -110,6 +110,7 @@ class XEMMStrategy(StrategyPyBase):
         self.profit_settings = profit_settings
         self.report_to_dbs = report_to_dbs
         self.hedge_order_slippage_tolerance = hedge_order_slippage_tolerance
+        self.bucket = bucket
         self.interval = interval
         self.bot_identifier = bot_identifier
         self.monitor_open_order_data = monitor_open_order_data
