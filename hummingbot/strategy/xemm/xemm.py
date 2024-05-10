@@ -251,7 +251,12 @@ class XEMMStrategy(StrategyPyBase):
 
     def check_for_base_asset_drift(self):
         def is_change_within_threshold(value1, value2, threshold=0.5):
-            return abs(value1 - value2) / value2 * 100 <= threshold
+            if value2 == Decimal(0) and value1 != value2:
+                return False
+            elif value2 == Decimal(0) and value1 == value2:
+                return True
+            else:
+                return abs(value1 - value2) / value2 * 100 <= threshold
 
         self._base_asset_amount_last_checked = self.current_timestamp
         base_amount = 0
@@ -770,7 +775,7 @@ class XEMMStrategy(StrategyPyBase):
     def compare_old_with_new_optimal_quotes_market_making(self, new_optimal_quotes):
         place_cancel_dict = {}
         order_sides = ["buy_orders", "sell_orders"]
-        tolerance = self.market_making_settings["Cancel_order_tolerance"]
+        tolerance = Decimal(self.market_making_settings["Cancel_order_tolerance"])
         cancel_order_threshold = Decimal(self.market_making_settings["Cancel_order_threshold"])
         for exchange, token in self.markets.items():
             if not self.exchange_stats[exchange]["maker"]:
