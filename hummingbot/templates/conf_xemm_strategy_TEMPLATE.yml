@@ -37,6 +37,8 @@ idle_amount_in_quote: null
 
 hedge_order_slippage_tolerance: 0.005
 
+taker_order_type: "limit" # "limit" or "market"
+
 report_to_dbs: False
 bucket: null
 interval: null

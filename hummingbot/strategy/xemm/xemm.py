@@ -101,7 +101,8 @@ class XEMMStrategy(StrategyPyBase):
                     bot_identifier: Decimal,
                     monitor_open_order_data: bool,
                     monitor_balance_data: bool,
-                    monitor_market_data: bool
+                    monitor_market_data: bool,
+                    taker_order_type: str,
                     ):
         self.exchange_stats = exchange_stats
         self.connectors = connectors
@@ -120,6 +121,7 @@ class XEMMStrategy(StrategyPyBase):
         self.max_order_size_quote = max_order_size_quote  # amount in USD for each order
         self.volatility_to_spread_multiplier = volatility_to_spread_multiplier
         self.idle_amount_in_quote = idle_amount_in_quote
+        self.taker_order_type = OrderType.MARKET if taker_order_type == "market" else OrderType.LIMIT
         self.min_profit_dict = {}
         self.max_order_age_seconds = 180
         self.min_notional_size_dict = {}  # "kucoin": 1 # custom min_notational. leave blank if not required
@@ -1062,15 +1064,19 @@ class XEMMStrategy(StrategyPyBase):
 
             # apply idle amounts and slippage buffer for Limit hedge orders
             # todo: this is not perfect, as it does not take into account the actual amount that is used for the hedge, but uses the total amount
-            if balance_base <= (self.idle_amount_in_quote / mid_price) + (balance_base * self.hedge_order_slippage_tolerance):
+
+            base_amount_for_slippage_tolerance = (balance_base * self.hedge_order_slippage_tolerance) if self.taker_order_type == OrderType.LIMIT else Decimal(0)
+            quote_amount_for_slippage_tolerance = (balance_quote * self.hedge_order_slippage_tolerance) if self.taker_order_type == OrderType.LIMIT else Decimal(0)
+
+            if balance_base <= (self.idle_amount_in_quote / mid_price) + base_amount_for_slippage_tolerance:
                 balance_base = Decimal(0)
             else:
-                balance_base -= (self.idle_amount_in_quote / mid_price) + (balance_base * self.hedge_order_slippage_tolerance)
+                balance_base -= (self.idle_amount_in_quote / mid_price) + base_amount_for_slippage_tolerance
 
-            if balance_quote <= self.idle_amount_in_quote + (balance_quote * self.hedge_order_slippage_tolerance):
+            if balance_quote <= self.idle_amount_in_quote + quote_amount_for_slippage_tolerance:
                 balance_quote = Decimal(0)
             else:
-                balance_quote -= self.idle_amount_in_quote + (balance_quote * self.hedge_order_slippage_tolerance)
+                balance_quote -= self.idle_amount_in_quote + quote_amount_for_slippage_tolerance
 
             self.exchange_info[exchange] = {"base": balance_base,
                                             "quote": balance_quote,
@@ -1232,18 +1238,22 @@ class XEMMStrategy(StrategyPyBase):
             await safe_gather(*async_cancellation_tasks)
 
         if hedge_order_is_buy:
-            price = best_ba_price * (Decimal("1") + self.hedge_order_slippage_tolerance)
-            order_id_1 = self.buy(hedge_exchange, hedge_pair, quantized_amount, OrderType.LIMIT, price)
+            price = (best_ba_price * (Decimal("1") + self.hedge_order_slippage_tolerance)) if self.taker_order_type == OrderType.LIMIT else best_ba_price
+            order_id_1 = self.buy(hedge_exchange, hedge_pair, quantized_amount, self.taker_order_type, price)
         else:
-            price = best_ba_price * (Decimal("1") - self.hedge_order_slippage_tolerance)
-            order_id_1 = self.sell(hedge_exchange, hedge_pair, quantized_amount, OrderType.LIMIT, price)
+            price = (best_ba_price * (Decimal("1") - self.hedge_order_slippage_tolerance)) if self.taker_order_type == OrderType.LIMIT else best_ba_price
+            order_id_1 = self.sell(hedge_exchange, hedge_pair, quantized_amount, self.taker_order_type, price)
 
         self.logger().info(
             f"execute_hedge: placed hedge {'buy' if hedge_order_is_buy else 'sell'} "
-            f"{hedge_exchange}, amount: {quantized_amount}, budget quote: "
-            f"{self.connectors[hedge_exchange].get_available_balance(quote)}, budget base: "
-            f"{self.connectors[hedge_exchange].get_available_balance(base)}"
+            f"{hedge_exchange}, amount: {quantized_amount}, budget base: "
+            f"{self.connectors[hedge_exchange].get_available_balance(base)}, budget quote: "
+            f"{self.connectors[hedge_exchange].get_available_balance(quote)}"
+            f"order_id: {order_id_1}"
+            f"OrderType: {self.taker_order_type}"
+            f"best_ba_price: {best_ba_price}, price: {price}"
         )
+
         # update variables
         self.hedge_order_id_to_filled_maker_exchange_trade_id[order_id_1] = exchange_trade_id
         self.active_taker_orders_ids.add(order_id_1, hedge_exchange)
@@ -1286,7 +1296,7 @@ class XEMMStrategy(StrategyPyBase):
         self.logger().info(f"place_hedge: place hedge for: {event}")
         amount = event.amount
         is_buy = True if event.trade_type == TradeType.BUY else False
-        maker_exchange = self.active_maker_orders_ids.get_exchange(event.order_id)  # self.get_exchange_from_order_id(event.order_id)
+        maker_exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
 
         # check for failed orders
         for hedge_id, info in self.hedge_trades.items():

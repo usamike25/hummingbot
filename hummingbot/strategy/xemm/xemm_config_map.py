@@ -48,7 +48,7 @@ xemm_config_map = {
         prompt_on_new=False,
         type_str="decimal"),
     "market_making_settings": ConfigVar(
-        key="exchange_stats",
+        key="market_making_settings",
         prompt="",
         prompt_on_new=False,
         type_str="decimal"),
@@ -129,5 +129,10 @@ xemm_config_map = {
         default=True,
         validator=lambda v: validate_bool(v),
         type_str="bool"),
+    "taker_order_type": ConfigVar(
+        key="taker_order_type",
+        prompt="taker_order_type: limit, market ? >>> ",
+        default="market",
+        type_str="str"),
 
 }

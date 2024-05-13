@@ -34,6 +34,7 @@ def start(self):
     monitor_open_order_data = xemm_config_map.get("monitor_open_order_data").value
     monitor_balance_data = xemm_config_map.get("monitor_balance_data").value
     monitor_market_data = xemm_config_map.get("monitor_market_data").value
+    taker_order_type = xemm_config_map.get("taker_order_type").value
 
     self._initialize_markets([(connector, [connector_dict["pair"]]) for connector, connector_dict in exchange_stats.items()])
 
@@ -55,6 +56,7 @@ def start(self):
                               bot_identifier=bot_identifier,
                               monitor_open_order_data=monitor_open_order_data,
                               monitor_balance_data=monitor_balance_data,
-                              monitor_market_data=monitor_market_data
+                              monitor_market_data=monitor_market_data,
+                              taker_order_type=taker_order_type
 
                               )
