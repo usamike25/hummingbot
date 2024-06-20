@@ -1261,6 +1261,8 @@ class XEMMStrategy(StrategyPyBase):
     def handle_failed_hedge(self, exchange_trade_id):
 
         self.logger().info("handle_failed_hedge:")
+        self.log_inflight_orders()
+
         is_buy = self.hedge_trades[exchange_trade_id]["is_buy"]
         amount = self.hedge_trades[exchange_trade_id]["amount"]
         event = self.hedge_trades[exchange_trade_id]["event"]
@@ -1575,10 +1577,10 @@ class XEMMStrategy(StrategyPyBase):
             self.logger().info(f"did_fail_order: {exchange}, quote: {self.connectors[exchange].get_available_balance(quote)}, base: {self.connectors[exchange].get_available_balance(base)}")
             self.handle_failed_hedge(exchange_trade_id)
 
-            # todo: delete this if the HB foundation fixes the issue with kucoin
-            if exchange == "kucoin":
-                self.logger().info("did_fail_order: remove order from tracking")
-                self.connectors[exchange].stop_tracking_order(event.order_id)
+            # # todo: delete this if the HB foundation fixes the issue with kucoin
+            # if exchange == "kucoin":
+            #     self.logger().info("did_fail_order: remove order from tracking")
+            #     self.connectors[exchange].stop_tracking_order(event.order_id)
 
         self.log_inflight_orders()
 
