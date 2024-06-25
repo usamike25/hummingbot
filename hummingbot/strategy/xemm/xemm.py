@@ -35,8 +35,8 @@ from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.order_book_asset_price_delegate import OrderBookAssetPriceDelegate
 from hummingbot.strategy.strategy_py_base import StrategyPyBase
-from hummingbot.strategy.strategy_reporter import StrategyReporter
-from hummingbot.strategy.xemm.xemm_utils import ActiveOrder, VolatilityIndicator2
+from hummingbot.strategy.xemm.utils import ActiveOrder, LimitedSizeDict, VolatilityIndicator2
+from hummingbot.strategy.xemm.xemm_reporter import TradeRecord, XEMMReporter
 
 # import sys
 # from pmm_scripts.path import path_to_pmm_scripts
@@ -73,10 +73,6 @@ class XEMMStrategy(StrategyPyBase):
 
     version: 1.3
     """
-
-    # def __init__(self, *args, **kwargs):
-    #     super().__init__(args, kwargs)
-    #     self._all_markets_ready = None
 
     @classmethod
     def logger(cls):
@@ -130,15 +126,15 @@ class XEMMStrategy(StrategyPyBase):
         self.active_maker_orders_ids = ActiveOrder()
         self.active_taker_orders_ids = ActiveOrder()
 
-        self.reporter = StrategyReporter(sb_order_tracker=self._sb_order_tracker,
-                                         market_pairs=self.all_trading_pair_tuples,
-                                         bot_identifier=self.bot_identifier,
-                                         monitor_market_data=self.monitor_market_data,
-                                         monitor_balance_data=self.monitor_balance_data,
-                                         monitor_open_order_data=self.monitor_open_order_data,
-                                         asset_price_delegate=None,
-                                         bucket=self.bucket,
-                                         interval=int(self.interval)) if self.report_to_dbs else None
+        self.reporter = XEMMReporter(sb_order_tracker=self._sb_order_tracker,
+                                     market_pairs=self.all_trading_pair_tuples,
+                                     bot_identifier=self.bot_identifier,
+                                     monitor_market_data=self.monitor_market_data,
+                                     monitor_balance_data=self.monitor_balance_data,
+                                     monitor_open_order_data=self.monitor_open_order_data,
+                                     asset_price_delegate=None,
+                                     bucket=self.bucket,
+                                     interval=int(self.interval)) if self.report_to_dbs else None
 
         # convert floats to Decimal
         for ex, ex_dict in self.exchange_stats.items():
@@ -164,6 +160,7 @@ class XEMMStrategy(StrategyPyBase):
         self.volatility_indicator = {}
         self.order_id_creation_timestamp = []
         self.latency_roundtrip = {}
+        self.order_latency = LimitedSizeDict(max_entries=20)
         self.order_creation_events = {}  # this is used to await pending create orders in order to properly cancel them
 
         self._base_asset_amount = deque(maxlen=3)
@@ -243,7 +240,7 @@ class XEMMStrategy(StrategyPyBase):
         for exchange, token in self.markets.items():
             pair = list(token)[0]
             mid_price = self.connectors[exchange].get_mid_price(pair)
-        self.last_recorded_mid_prices[exchange] = mid_price
+            self.last_recorded_mid_prices[exchange] = mid_price
 
     def start(self, clock: Clock, timestamp: float):
         if self.report_to_dbs:
@@ -1301,6 +1298,7 @@ class XEMMStrategy(StrategyPyBase):
         is_buy = True if event.trade_type == TradeType.BUY else False
         maker_exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
 
+        additional_trade_records = []
         # check for failed orders
         for hedge_id, info in self.hedge_trades.items():
             if info["status"] == "failed":
@@ -1311,7 +1309,8 @@ class XEMMStrategy(StrategyPyBase):
                     amount += hedge_amount
                 elif hedge_is_buy and is_buy or not hedge_is_buy and not is_buy:
                     amount -= hedge_amount
-                # mark as processed
+                # mark as processed and att id to new hedge trade
+                additional_trade_records += info["trade_records"]
                 info["status"] = "processed"
                 self.logger().info(f"place_hedge: add failed order: {self.hedge_trades[hedge_id]}")
 
@@ -1320,12 +1319,24 @@ class XEMMStrategy(StrategyPyBase):
             is_buy = False if is_buy else True
             amount = abs(amount)
 
+        # create trade record
+        trade_record = TradeRecord(entry_trade_id=event.exchange_trade_id,
+                                   enrey_order_id=event.exchange_order_id,
+                                   entry_exchange=maker_exchange,
+                                   entry_amount=event.amount,
+                                   entry_price=event.price,
+                                   entry_side="buy" if is_buy else "sell",
+                                   entry_timestamp=event.timestamp,
+                                   entry_latency=self.order_latency[event.exchange_order_id],
+                                   )
+
         # create entry in hedge_trades
         self.hedge_trades[event.exchange_trade_id] = {"is_buy": False if is_buy else True,
                                                       "amount": amount,
                                                       "status": "in_process",
                                                       "maker_exchange": maker_exchange,
-                                                      "event": event}
+                                                      "event": event,
+                                                      "trade_records": [trade_record] + additional_trade_records}
 
         # place hedge
         exchange_trade_id = event.exchange_trade_id
@@ -1543,9 +1554,12 @@ class XEMMStrategy(StrategyPyBase):
         return
 
     def calculate_latency(self, event):
+
         for exchange, id, timestamp in self.order_id_creation_timestamp:
             if id == event.order_id:
-                self.latency_roundtrip[exchange].append((time.perf_counter() - timestamp) * 1000)
+                latency = (time.perf_counter() - timestamp) * 1000
+                self.latency_roundtrip[exchange].append(latency)
+                self.order_latency[event.order_id] = latency
                 self.order_id_creation_timestamp.remove((exchange, id, timestamp))
 
     def did_fail_order(self, event: MarketOrderFailureEvent):
@@ -1600,22 +1614,36 @@ class XEMMStrategy(StrategyPyBase):
                 self.logger().info(f"{exchange}, side: {side}, order_id: {order_id}, amount: {amount}, current_state: {current_state}")
 
     def did_fill_order(self, event: OrderFilledEvent):
+        trading_pair = event.trading_pair
         # handle if maker order
         if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             exchange = self.active_maker_orders_ids.get_exchange(event.order_id)
-            trading_pair = event.trading_pair
             self.logger().info(f"Filled maker {event.trade_type} order for {event.amount} with price: {event.price} exchange: {exchange}")
 
             # hedge trade
             hedge_exchange = self.maker_order_id_to_hedge_exchange[event.order_id]
             safe_ensure_future(self.place_hedge(event, hedge_exchange))
-
             market_trading_pair_tuple = MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1])
 
             if self.report_to_dbs:
                 safe_ensure_future(self.reporter.send_order_fill_data(market_trading_pair_tuple, event, self.last_recorded_mid_prices.get(exchange)))
 
+        # handle if taker order
+        if self.active_taker_orders_ids.is_or_was_active_order(event.order_id):
+            exchange = self.active_taker_orders_ids.get_exchange(event.order_id)
+            market_trading_pair_tuple = MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1])
+
+            # handel trade records
+            exchange_trade_id = self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
+            for trade_record in self.hedge_trades[exchange_trade_id]["trade_records"]:
+                trade_record.add_exit_fill_event(event)
+
+            # report to dbs
+            if self.report_to_dbs:
+                safe_ensure_future(self.reporter.send_order_fill_data(market_trading_pair_tuple, event, self.last_recorded_mid_prices.get(exchange)))
+
     def handle_order_complete_event(self, event):
+        trading_pair = f"{event.base_asset}-{event.quote_asset}"
         # handle if maker order
         if self.active_maker_orders_ids.is_or_was_active_order(event.order_id):
             self.active_maker_orders_ids.remove(event.order_id)
@@ -1624,8 +1652,21 @@ class XEMMStrategy(StrategyPyBase):
         if self.active_taker_orders_ids.is_or_was_active_order(event.order_id):
             self.active_taker_orders_ids.remove(event.order_id)
             exchange = self.active_taker_orders_ids.get_exchange(event.order_id)
+
+            # handel trade records
             self.logger().info(f"handle_order_complete_event: hedge_trades: {self.hedge_trades}")
             exchange_trade_id = self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
+            for trade_record in self.hedge_trades[exchange_trade_id]["trade_records"]:
+                trade_record.set_exit_trade(exit_exchange=exchange,
+                                            exit_order_id=event.order_id,
+                                            exit_latency=self.order_latency[event.order_id],
+                                            exit_last_reported_mid_price=self.last_recorded_mid_prices.get(exchange))
+
+                self.logger().info(f"handle_order_complete_event: trade_record: {trade_record}")
+                if self.report_to_dbs:
+                    market_trading_pair_tuple = MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1])
+                    safe_ensure_future(self.reporter.send_trade_record_data(market_trading_pair_tuple, trade_record))
+
             del self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
             del self.hedge_trades[exchange_trade_id]
             self.delete_all_processed_trades_from_hedge_trades()

@@ -1,5 +1,6 @@
 import threading
 import time
+from collections import OrderedDict
 from decimal import Decimal
 
 import numpy as np
@@ -9,7 +10,7 @@ from hummingbot.core.data_type.common import PriceType
 
 class ActiveOrder:
     def __init__(self):
-        self.buffer_size = 2000
+        self.buffer_size = 50
         self.data = {}  # for active lookup {order_id: exchange}
         self.deleted_data = {}  # for secondary lookup
 
@@ -37,9 +38,6 @@ class ActiveOrder:
         return self.data
 
     def is_active_order(self, order_id):
-        return True if order_id in self.data else False
-
-    def is_or_was_active_order(self, order_id):
         return True if order_id in self.data or order_id in self.deleted_data else False
 
 
@@ -98,7 +96,7 @@ class UtilsFunctions:
 
 
 class VolatilityIndicator2:
-    """feed indicator every second to calculate vol"""
+    """feed indicator every second to calcuulate vol"""
 
     def __init__(self, price_delegate, price_feed_update_interval_s=1, vol_update_s=5, window=300):
         self.vol = 0
@@ -157,3 +155,39 @@ class VolatilityIndicator2:
             return self.vol
         else:
             return 0
+
+
+class LimitedSizeDict:
+    def __init__(self, max_entries: int):
+        self.max_entries = max_entries
+        self._data = OrderedDict()
+
+    def __setitem__(self, key, value):
+        # Add new entry
+        self._data[key] = value
+        # Move the key to the end to show that it was recently added
+        self._data.move_to_end(key)
+        # Remove the oldest entry if the size exceeds max_entries
+        if len(self._data) > self.max_entries:
+            self._data.popitem(last=False)  # pop the first item
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __len__(self):
+        return len(self._data)
+
+    def __repr__(self):
+        return repr(self._data)
+
+    def items(self):
+        return self._data.items()
+
+    def keys(self):
+        return self._data.keys()
+
+    def values(self):
+        return self._data.values()
