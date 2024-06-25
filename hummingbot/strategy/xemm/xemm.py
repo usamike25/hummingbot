@@ -432,7 +432,7 @@ class XEMMStrategy(StrategyPyBase):
         my_limit_orders = {}
         min_price_step = self.min_price_step[exchange]
         for (ex, order, order_id) in self.active_limit_orders:
-            if ex.display_name == exchange:
+            if self.get_real_connector_name(ex.display_name) == exchange:
                 my_limit_orders[float(round(order.price / min_price_step) * min_price_step)] = order.quantity
 
         # place order just in front of another, don't quote higher than best bid ask
@@ -1217,8 +1217,9 @@ class XEMMStrategy(StrategyPyBase):
         # cancel maker order on other exchange
         async_cancellation_tasks = []
         for ex, order, order_id in self.active_maker_limit_orders:
-            if ex.display_name == hedge_exchange:
-                maker_order_on_hedge_exchange = self.connectors[ex.display_name].in_flight_orders[order_id]
+            exchange_name = self.get_real_connector_name(ex.display_name)
+            if exchange_name == hedge_exchange:
+                maker_order_on_hedge_exchange = self.connectors[exchange_name].in_flight_orders[order_id]
                 maker_order_on_hedge_exchange_pair = maker_order_on_hedge_exchange.trading_pair
                 trade_type = maker_order_on_hedge_exchange.trade_type
                 maker_order_is_buy = True if trade_type == TradeType.BUY else False
@@ -1450,10 +1451,11 @@ class XEMMStrategy(StrategyPyBase):
         for ex, order, order_id in self.active_limit_orders:
             age_txt = "n/a" if order.age() <= 0. else pd.Timestamp(order.age(), unit='s').strftime('%H:%M:%S')
             hedge_exchange = self.maker_order_id_to_hedge_exchange[order_id]
-            mid_price = self.connectors[ex.display_name].get_mid_price(order.trading_pair)
+            exchange_name = self.get_real_connector_name(ex.display_name)
+            mid_price = self.connectors[exchange_name].get_mid_price(order.trading_pair)
             spread = round(((abs(mid_price - order.price) / mid_price) * 100), 2)
             data.append([
-                ex.display_name,
+                exchange_name,
                 order.trading_pair,
                 "buy" if order.is_buy else "sell",
                 float(order.price),
@@ -1477,10 +1479,11 @@ class XEMMStrategy(StrategyPyBase):
         for ex, order, order_id in self.active_maker_limit_orders:
             age_txt = "n/a" if order.age() <= 0. else pd.Timestamp(order.age(), unit='s').strftime('%H:%M:%S')
             hedge_exchange = self.maker_order_id_to_hedge_exchange[order_id]
-            mid_price = self.connectors[ex.display_name].get_mid_price(order.trading_pair)
+            exchange_name = self.get_real_connector_name(ex.display_name)
+            mid_price = self.connectors[exchange_name].get_mid_price(order.trading_pair)
             spread = round(((abs(mid_price - order.price) / mid_price) * 100), 2)
             data.append([
-                ex.display_name,
+                exchange_name,
                 order.trading_pair,
                 "buy" if order.is_buy else "sell",
                 float(order.price),
@@ -1693,6 +1696,12 @@ class XEMMStrategy(StrategyPyBase):
                 keys_to_delete.append(id)
         for key in keys_to_delete:
             del self.hedge_trades[key]
+
+    def get_real_connector_name(self, exchange_name: str) -> str:
+        """returns the hft connector if the exchange is a hft exchange, otherwise the normal connector."""
+        if "kucoin" in exchange_name and "kucoin_hft" in self.markets.keys() and "kucoin" not in self.markets.keys():
+            return "kucoin_hft"
+        return exchange_name
 
     def stop(self, clock: Clock):
         """
