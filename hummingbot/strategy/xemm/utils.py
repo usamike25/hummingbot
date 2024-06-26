@@ -10,7 +10,7 @@ from hummingbot.core.data_type.common import PriceType
 
 class ActiveOrder:
     def __init__(self):
-        self.buffer_size = 50
+        self.buffer_size = 2000
         self.data = {}  # for active lookup {order_id: exchange}
         self.deleted_data = {}  # for secondary lookup
 
@@ -38,6 +38,9 @@ class ActiveOrder:
         return self.data
 
     def is_active_order(self, order_id):
+        return True if order_id in self.data else False
+
+    def is_or_was_active_order(self, order_id):
         return True if order_id in self.data or order_id in self.deleted_data else False
 
 
