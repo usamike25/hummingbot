@@ -35,7 +35,7 @@ from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.order_book_asset_price_delegate import OrderBookAssetPriceDelegate
 from hummingbot.strategy.strategy_py_base import StrategyPyBase
-from hummingbot.strategy.xemm.utils import ActiveOrder, LimitedSizeDict, VolatilityIndicator2
+from hummingbot.strategy.xemm.utils import ActiveOrder, VolatilityIndicator2
 from hummingbot.strategy.xemm.xemm_reporter import TradeRecord, XEMMReporter
 
 # import sys
@@ -160,7 +160,7 @@ class XEMMStrategy(StrategyPyBase):
         self.volatility_indicator = {}
         self.order_id_creation_timestamp = []
         self.latency_roundtrip = {}
-        self.order_latency = LimitedSizeDict(max_entries=20)
+        self.order_latency = {}  # order_id: latency
         self.order_creation_events = {}  # this is used to await pending create orders in order to properly cancel them
 
         self._base_asset_amount = deque(maxlen=3)
@@ -1327,7 +1327,7 @@ class XEMMStrategy(StrategyPyBase):
                                    entry_price=event.price,
                                    entry_side="buy" if is_buy else "sell",
                                    entry_timestamp=event.timestamp,
-                                   entry_latency=self.order_latency[event.exchange_order_id],
+                                   entry_latency=self.order_latency.get(event.exchange_order_id, None),
                                    )
 
         # create entry in hedge_trades
@@ -1600,6 +1600,7 @@ class XEMMStrategy(StrategyPyBase):
             #     self.connectors[exchange].stop_tracking_order(event.order_id)
 
         self.log_inflight_orders()
+        del self.order_latency[event.order_id]
 
     def log_inflight_orders(self):
         # log all orders to debug
@@ -1659,7 +1660,7 @@ class XEMMStrategy(StrategyPyBase):
             for trade_record in self.hedge_trades[exchange_trade_id]["trade_records"]:
                 trade_record.set_exit_trade(exit_exchange=exchange,
                                             exit_order_id=event.order_id,
-                                            exit_latency=self.order_latency[event.order_id],
+                                            exit_latency=self.order_latency.get(event.order_id, None),
                                             exit_last_reported_mid_price=self.last_recorded_mid_prices.get(exchange))
 
                 self.logger().info(f"handle_order_complete_event: trade_record: {trade_record}")
@@ -1669,9 +1670,11 @@ class XEMMStrategy(StrategyPyBase):
 
             del self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
             del self.hedge_trades[exchange_trade_id]
+
             self.delete_all_processed_trades_from_hedge_trades()
             self.time_out_dict[exchange] = False
 
+        del self.order_latency[event.order_id]
         self.ids_to_cancel.discard(event.order_id)
         self.log_inflight_orders()
 
@@ -1719,6 +1722,8 @@ class XEMMStrategy(StrategyPyBase):
 
                 except KeyError:
                     continue
+
+        del self.order_latency[event.order_id]
 
     def _process_public_trade_0(self, event_tag: int, market: ConnectorBase, event: OrderBookTradeEvent):
         # self.logger().info(f"Trade on exchange: {market.display_name}")
