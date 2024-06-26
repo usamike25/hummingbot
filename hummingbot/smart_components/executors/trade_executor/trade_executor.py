@@ -251,12 +251,10 @@ class TradeExecutor(ExecutorBase):
     def get_best_price(self, connector_name, trading_pair, is_buy, amount):
         if is_buy:
             price = best_bid = self.connectors[connector_name].get_price(trading_pair, False)
-            price = self.optimize_order_placement(best_bid, is_buy, connector_name, trading_pair, optimize_order=True) - self.connectors[connector_name].trading_rules[
-                trading_pair].min_price_increment
+            price = self.optimize_order_placement(best_bid, is_buy, connector_name, trading_pair, optimize_order=True)
         else:
             price = best_ask = self.connectors[connector_name].get_price(trading_pair, True)
-            price = self.optimize_order_placement(best_ask, is_buy, connector_name, trading_pair, optimize_order=True) + self.connectors[connector_name].trading_rules[
-                trading_pair].min_price_increment
+            price = self.optimize_order_placement(best_ask, is_buy, connector_name, trading_pair, optimize_order=True)
 
         return price
 
@@ -282,7 +280,6 @@ class TradeExecutor(ExecutorBase):
                 return self.connectors[exchange].quantize_order_price(pair, Decimal(first_ob_entry.price))
 
             if optimize_order:
-
                 for ob_entry in order_book_iterator:
                     if price == ob_entry.price and amount_sub_my_orders_and_ignore_small_orders(ob_entry) != 0:
                         return Decimal(ob_entry.price)
