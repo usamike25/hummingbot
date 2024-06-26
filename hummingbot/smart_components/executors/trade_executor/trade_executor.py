@@ -115,7 +115,6 @@ class TradeExecutor(ExecutorBase):
         return [(ex, order, order.client_order_id) for ex, order in self._strategy._sb_order_tracker.active_limit_orders]
 
     async def control_task(self):
-        self.logger().info(f" control_task: {self.trade_status}")
         if self.trade_status == TradeExecutorStatus.NOT_STARTED:
             self.place_order_at_best_price(is_open=True, is_buy=self.is_buy)
             self.trade_status = TradeExecutorStatus.OPENING
@@ -136,10 +135,7 @@ class TradeExecutor(ExecutorBase):
                 self.place_order_at_best_price(is_open=False, is_buy=not self.is_buy)
 
     def check_order_and_cancel(self, order_id):
-        self.logger().info(f"check_order_and_cancel: {order_id}")
         order = self.get_in_flight_order(self.market.connector_name, order_id)
-        self.logger().info(
-            f"orderprice: {order.price} bestprice: {self.get_best_price(self.market.connector_name, self.market.trading_pair, True if order.trade_type == TradeType.BUY else False, order.amount)}   ")
         if order.price != self.get_best_price(self.market.connector_name, self.market.trading_pair, True if order.trade_type == TradeType.BUY else False, order.amount):
             self._strategy.cancel(connector_name=self.market.connector_name, trading_pair=self.market.trading_pair,
                                   order_id=order_id)
@@ -185,7 +181,7 @@ class TradeExecutor(ExecutorBase):
             )
 
     def process_order_created_event(self, _, market, event: Union[BuyOrderCreatedEvent, SellOrderCreatedEvent]):
-        self.logger().info(" Order Created")
+        pass
 
     def process_order_filled_event(self, _, market, event: OrderFilledEvent):
         if event.order_id == self._active_open_order_id:
@@ -243,6 +239,12 @@ class TradeExecutor(ExecutorBase):
         pnl = 0
         return pnl
 
+    def stop_trade(self):
+        self.trade_status = TradeExecutorStatus.COMPLETED
+        if self._active_open_order_id:
+            self._strategy.cancel(self.market.connector_name, self.market.trading_pair, self._active_open_order_id)
+        self.stop()
+
     def to_format_status(self):
         pass
 
@@ -250,11 +252,11 @@ class TradeExecutor(ExecutorBase):
         if is_buy:
             price = best_bid = self.connectors[connector_name].get_price(trading_pair, False)
             price = self.optimize_order_placement(best_bid, is_buy, connector_name, trading_pair, optimize_order=True) - self.connectors[connector_name].trading_rules[
-                trading_pair].min_price_increment * 30
+                trading_pair].min_price_increment
         else:
             price = best_ask = self.connectors[connector_name].get_price(trading_pair, True)
             price = self.optimize_order_placement(best_ask, is_buy, connector_name, trading_pair, optimize_order=True) + self.connectors[connector_name].trading_rules[
-                trading_pair].min_price_increment * 30
+                trading_pair].min_price_increment
 
         return price
 
