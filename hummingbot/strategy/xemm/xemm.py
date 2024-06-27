@@ -492,7 +492,7 @@ class XEMMStrategy(StrategyPyBase):
                 # this is the price for a buy order
                 possible_price_ask = self.connectors[ex].get_price_for_volume(pair_ex, True, min((available_quote / mid), base_amount)).result_price
 
-                if not possible_price_ask.is_nan():
+                if not possible_price_ask.is_nan():  # todo: use some sort of cache
                     possible_prices_list_ask.append((ex, possible_price_ask))
                 if not possible_price_bid.is_nan():
                     possible_prices_list_bid.append((ex, possible_price_bid))
@@ -1321,7 +1321,7 @@ class XEMMStrategy(StrategyPyBase):
 
         # create trade record
         trade_record = TradeRecord(entry_trade_id=event.exchange_trade_id,
-                                   enrey_order_id=event.exchange_order_id,
+                                   entry_order_id=event.exchange_order_id,
                                    entry_exchange=maker_exchange,
                                    entry_amount=event.amount,
                                    entry_price=event.price,
@@ -1329,6 +1329,7 @@ class XEMMStrategy(StrategyPyBase):
                                    entry_timestamp=event.timestamp,
                                    entry_latency=self.order_latency.get(event.exchange_order_id, None),
                                    )
+        self.logger().info(f"place_hedge: trade_record: {trade_record}")
 
         # create entry in hedge_trades
         self.hedge_trades[event.exchange_trade_id] = {"is_buy": False if is_buy else True,
@@ -1600,7 +1601,7 @@ class XEMMStrategy(StrategyPyBase):
             #     self.connectors[exchange].stop_tracking_order(event.order_id)
 
         self.log_inflight_orders()
-        del self.order_latency[event.order_id]
+        self.order_latency.pop(event.order_id, None)
 
     def log_inflight_orders(self):
         # log all orders to debug
@@ -1634,11 +1635,6 @@ class XEMMStrategy(StrategyPyBase):
             exchange = self.active_taker_orders_ids.get_exchange(event.order_id)
             market_trading_pair_tuple = MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1])
 
-            # handel trade records
-            exchange_trade_id = self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
-            for trade_record in self.hedge_trades[exchange_trade_id]["trade_records"]:
-                trade_record.add_exit_fill_event(event)
-
             # report to dbs
             if self.report_to_dbs:
                 safe_ensure_future(self.reporter.send_order_fill_data(market_trading_pair_tuple, event, self.last_recorded_mid_prices.get(exchange)))
@@ -1658,10 +1654,12 @@ class XEMMStrategy(StrategyPyBase):
             self.logger().info(f"handle_order_complete_event: hedge_trades: {self.hedge_trades}")
             exchange_trade_id = self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
             for trade_record in self.hedge_trades[exchange_trade_id]["trade_records"]:
+                exit_in_flight_order = self.connectors[exchange]._order_tracker.fetch_order(client_order_id=event.order_id)
                 trade_record.set_exit_trade(exit_exchange=exchange,
                                             exit_order_id=event.order_id,
                                             exit_latency=self.order_latency.get(event.order_id, None),
-                                            exit_last_reported_mid_price=self.last_recorded_mid_prices.get(exchange))
+                                            exit_last_reported_mid_price=self.last_recorded_mid_prices.get(exchange),
+                                            exit_in_flight_order=exit_in_flight_order)
 
                 self.logger().info(f"handle_order_complete_event: trade_record: {trade_record}")
                 if self.report_to_dbs:
@@ -1674,7 +1672,7 @@ class XEMMStrategy(StrategyPyBase):
             self.delete_all_processed_trades_from_hedge_trades()
             self.time_out_dict[exchange] = False
 
-        del self.order_latency[event.order_id]
+        self.order_latency.pop(event.order_id, None)
         self.ids_to_cancel.discard(event.order_id)
         self.log_inflight_orders()
 
@@ -1723,7 +1721,7 @@ class XEMMStrategy(StrategyPyBase):
                 except KeyError:
                     continue
 
-        del self.order_latency[event.order_id]
+        self.order_latency.pop(event.order_id, None)
 
     def _process_public_trade_0(self, event_tag: int, market: ConnectorBase, event: OrderBookTradeEvent):
         # self.logger().info(f"Trade on exchange: {market.display_name}")

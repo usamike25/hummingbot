@@ -2,7 +2,6 @@ import logging
 from decimal import Decimal
 
 from hummingbot.core.data_type.common import TradeType
-from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.strategy.strategy_reporter import StrategyReporter
 
 # from influxdb_client import Point, WritePrecision
@@ -22,6 +21,7 @@ class TradeRecord:
         self.entry_latency = entry_latency
 
         self.exit_exchange = None
+        self.exit_in_flight_order = None
         self.exit_price = None
         self.exit_amount = None
         self.exit_side = None
@@ -38,12 +38,15 @@ class TradeRecord:
         self.trade_duration = Decimal("0")
         self.slippage = Decimal("0")
 
-    def set_exit_trade(self, exit_exchange, exit_order_id, exit_latency, exit_last_reported_mid_price):
+    def set_exit_trade(self, exit_exchange, exit_order_id, exit_latency, exit_last_reported_mid_price, exit_in_flight_order):
         self.exit_exchange = exit_exchange
         self.exit_order_id = exit_order_id
         self.exit_latency = exit_latency
         self.exit_last_reported_mid_price = exit_last_reported_mid_price
+        self.exit_in_flight_order = exit_in_flight_order
 
+        if exit_in_flight_order is None:
+            return
         self.set_exit_amount()
         self.set_exit_price()
         self.set_exit_side()
@@ -61,7 +64,7 @@ class TradeRecord:
 
         :return: Exit amount of the trade
         """
-        self.exit_amount = sum([fill.amount for fill in self.exit_fills])
+        self.exit_amount = self.exit_in_flight_order.executed_amount_base
 
     def set_exit_price(self):
         """
@@ -70,7 +73,7 @@ class TradeRecord:
         :return: Exit price of the trade
         """
         total_amount = self.exit_amount
-        exit_price = sum([fill.price * fill.amount for fill in self.exit_fills]) / total_amount
+        exit_price = sum([fill.fill_price * fill.fill_base_amount for fill in self.exit_in_flight_order.order_fills]) / total_amount
         self.exit_price = exit_price
 
     def set_exit_side(self):
@@ -79,23 +82,23 @@ class TradeRecord:
 
         :return: Exit side of the trade
         """
-        self.exit_side = "buy" if self.exit_fills[0].trade_type == TradeType.BUY else "sell"
+        self.exit_side = "buy" if self.exit_in_flight_order.trade_type == TradeType.BUY else "sell"
 
     def set_exit_timestamp(self):
         """
         Sets the exit timestamp of the trade as the timestamp of the last exit fill.
 
         """
-        self.exit_timestamp = self.exit_fills[-1].timestamp
+        self.exit_timestamp = self.exit_in_flight_order.creation_timestamp
 
     def set_exit_trade_ids(self):
         """
         Sets the exit trade ids of the trade as the trade ids of the exit fills.
         """
-        self.exit_trade_ids = [fill.exchange_trade_id for fill in self.exit_fills]
+        self.exit_trade_ids = [fill.trade_id for fill in self.exit_in_flight_order.order_fills]
 
-    def add_exit_fill_event(self, event: OrderFilledEvent):
-        self.exit_fills.append(event)
+    # def add_exit_fill_event(self, event: OrderFilledEvent):
+    #     self.exit_fills.append(event)
 
     def set_pnl_pct(self):
         """
@@ -116,7 +119,7 @@ class TradeRecord:
 
         :return: Profit/loss of the trade in quote currency
         """
-        pnl_pct = self.get_pnl_pct() / 100
+        pnl_pct = self.get_pnl_pct() / Decimal("100")
         trade_amount = min(self.entry_amount, self.exit_amount)  # min, because one hedge can relate to many entry ids
         pnl_quote = pnl_pct * self.entry_price * trade_amount
         self.pnl_quote = Decimal(pnl_quote)
@@ -127,7 +130,7 @@ class TradeRecord:
 
         :return: Profit/loss of the trade in base currency
         """
-        pnl_pct = self.get_pnl_pct() / 100
+        pnl_pct = self.get_pnl_pct() / Decimal("100")
         trade_amount = min(self.entry_amount, self.exit_amount)  # min, because one hedge can relate to many entry ids
         pnl_base = pnl_pct * trade_amount
         self.pnl_base = Decimal(pnl_base)
@@ -150,13 +153,14 @@ class TradeRecord:
 
     def __str__(self):
         return (f"Trade(Entry: [ID: {self.entry_trade_id}, Exchange: {self.entry_exchange}, Price: {self.entry_price}, "
-                f"Amount: {self.entry_amount}, Side: {self.entry_side}, Timestamp: {self.entry_timestamp}], "
-                f"Exit: [ID: {self.exit_trade_ids}, Exchange: {self.exit_exchange}, Price: {self.exit_price}, "
-                f"Amount: {self.exit_amount}, Side: {self.exit_side}, Timestamp: {self.exit_timestamp}])"
-                f"Latency: {self.entry_latency}, {self.exit_latency}"
-                f"PnL quote: {self.get_pnl_quote()}"
-                f"PnL base: {self.get_pnl_base()}"
-                f"PnL pct: {self.get_pnl_pct()}"
+                f"Amount: {self.entry_amount}, Side: {self.entry_side}, Timestamp: {self.entry_timestamp}, Order ID: {self.entry_order_id}, Latency: {self.entry_latency}], "
+                f"Exit: [IDs: {self.exit_trade_ids}, Exchange: {self.exit_exchange}, Price: {self.exit_price}, "
+                f"Amount: {self.exit_amount}, Side: {self.exit_side}, Timestamp: {self.exit_timestamp}, Order ID: {self.exit_order_id}, Latency: {self.exit_latency}], "
+                f"Trade Duration: {self.trade_duration}, "
+                f"PnL Quote: {self.get_pnl_quote()}, "
+                f"PnL Base: {self.get_pnl_base()}, "
+                f"PnL Pct: {self.get_pnl_pct()}, "
+                f"Exit Slippage: {self.slippage})"
                 )
 
 
