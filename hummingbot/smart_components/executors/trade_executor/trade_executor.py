@@ -5,11 +5,13 @@ from typing import Union
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PositionAction, TradeType
 from hummingbot.core.event.events import (
+    BuyOrderCompletedEvent,
     BuyOrderCreatedEvent,
     FundingPaymentCompletedEvent,
     MarketOrderFailureEvent,
     OrderCancelledEvent,
     OrderFilledEvent,
+    SellOrderCompletedEvent,
     SellOrderCreatedEvent,
 )
 from hummingbot.core.rate_oracle.rate_oracle import RateOracle
@@ -107,8 +109,10 @@ class TradeExecutor(ExecutorBase):
         return sum([order.cum_fees_quote for order in all_orders])
 
     def validate_sufficient_balance(self):
-        # TODO: Implement this method checking balances in the two exchanges
         pass
+
+    def is_above_min_order_size(self, market, amount, price, trading_pair):
+        return True if market.trading_rules[trading_pair].min_notional_size * Decimal(1.1) < (amount * price) and market.trading_rules[trading_pair].min_order_size < amount else False
 
     @property
     def active_limit_orders(self):
@@ -146,14 +150,23 @@ class TradeExecutor(ExecutorBase):
         order_type = self.open_order_type if is_open else self.close_order_type
         position_action = PositionAction.OPEN if is_open else PositionAction.CLOSE
         side = TradeType.BUY if is_buy else TradeType.SELL
-        order_id = self.place_order(connector_name=self.market.connector_name,
-                                    trading_pair=self.market.trading_pair, order_type=order_type,
-                                    side=side, amount=amount, price=best_price,
-                                    position_action=position_action)
-        if is_open:
-            self._active_open_order_id = order_id
+        if self.is_above_min_order_size(self.connectors[self.market.connector_name], amount, best_price, self.market.trading_pair):
+            order_id = self.place_order(connector_name=self.market.connector_name,
+                                        trading_pair=self.market.trading_pair, order_type=order_type,
+                                        side=side, amount=amount, price=best_price,
+                                        position_action=position_action)
+            if is_open:
+                self._active_open_order_id = order_id
+            else:
+                self._active_close_order_id = order_id
         else:
-            self._active_close_order_id = order_id
+            self.logger().error("Order amount is below minimum order size. Skipping trade.")
+            if self.trade_status == TradeExecutorStatus.NOT_STARTED:
+                self.trade_status = TradeExecutorStatus.FAILED
+            elif self.trade_status == TradeExecutorStatus.OPENING:
+                self.trade_status = TradeExecutorStatus.ACTIVE
+            elif self.trade_status == TradeExecutorStatus.CLOSING:
+                self.trade_status = TradeExecutorStatus.COMPLETED
 
     async def get_tx_cost_in_asset(self, exchange: str, trading_pair: str, is_buy: bool, order_amount: Decimal, asset: str):
         connector = self.connectors[exchange]
@@ -197,13 +210,23 @@ class TradeExecutor(ExecutorBase):
     def process_order_failed_event(self, _, market, event: MarketOrderFailureEvent):
         if event.order_id == self._active_open_order_id:
             self._active_open_order_id = None
-        elif event.order_id == self._active_close_order_id.order.order_id:
+        elif event.order_id == self._active_close_order_id:
             self._active_close_order_id = None
 
     def process_order_canceled_event(self, event_tag: int, market: ConnectorBase, event: OrderCancelledEvent):
         if event.order_id == self._active_open_order_id:
             self._active_open_order_id = None
-        elif event.order_id == self._active_close_order_id.order.order_id:
+        elif event.order_id == self._active_close_order_id:
+            self._active_close_order_id = None
+
+    def process_order_completed_event(self,
+                                      event_tag: int,
+                                      market: ConnectorBase,
+                                      event: Union[BuyOrderCompletedEvent, SellOrderCompletedEvent]):
+
+        if event.order_id == self._active_open_order_id:
+            self._active_open_order_id = None
+        elif event.order_id == self._active_close_order_id:
             self._active_close_order_id = None
 
     def process_funding_payment_completed_event(self, event_tag: int, market: ConnectorBase, event: FundingPaymentCompletedEvent):
