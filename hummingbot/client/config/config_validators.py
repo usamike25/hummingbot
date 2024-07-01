@@ -4,6 +4,7 @@ string and determines whether it is valid input. This file contains many validat
 hummingbot ConfigVars.
 """
 
+import re
 import time
 from datetime import datetime
 from decimal import Decimal
@@ -33,7 +34,8 @@ def validate_connector(value: str) -> Optional[str]:
     Restrict valid derivatives to the connector file names
     """
     from hummingbot.client.settings import AllConnectorSettings
-    if value not in AllConnectorSettings.get_connector_settings() and value != "celo":
+    if (value not in AllConnectorSettings.get_connector_settings()
+            and value not in AllConnectorSettings.paper_trade_connectors_names):
         return f"Invalid connector, please choose value from {AllConnectorSettings.get_connector_settings().keys()}"
 
 
@@ -160,3 +162,11 @@ def validate_time_iso_string(value: str) -> Optional[str]:
         time.strptime(value, '%H:%M:%S')
     except ValueError:
         return "Incorrect time format (expected is HH:MM:SS)"
+
+
+def validate_with_regex(value: str, pattern: str, error_message: str) -> Optional[str]:
+    """
+    Validate a string using a regex pattern.
+    """
+    if not re.match(pattern, value):
+        return error_message

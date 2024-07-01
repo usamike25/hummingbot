@@ -4,7 +4,7 @@ from typing import Dict, Optional, Union
 
 from pydantic import Field, root_validator, validator
 
-from hummingbot.client.config.config_data_types import BaseClientModel, BaseTradingStrategyConfigMap, ClientFieldData
+from hummingbot.client.config.config_data_types import BaseClientModel, ClientFieldData
 from hummingbot.client.config.config_validators import (
     validate_bool,
     validate_datetime_iso_string,
@@ -12,6 +12,7 @@ from hummingbot.client.config.config_validators import (
     validate_int,
     validate_time_iso_string,
 )
+from hummingbot.client.config.strategy_config_data_types import BaseTradingStrategyConfigMap
 from hummingbot.client.settings import required_exchanges
 from hummingbot.connector.utils import split_hb_trading_pair
 
@@ -43,7 +44,9 @@ class FromDateToDateModel(BaseClientModel):
         title = "from_date_to_date"
 
     @validator("start_datetime", "end_datetime", pre=True)
-    def validate_execution_time(cls, v: str) -> Optional[str]:
+    def validate_execution_time(cls, v: Union[str, datetime]) -> Optional[str]:
+        if not isinstance(v, str):
+            v = v.strftime("%Y-%m-%d %H:%M:%S")
         ret = validate_datetime_iso_string(v)
         if ret is not None:
             raise ValueError(ret)
@@ -72,7 +75,9 @@ class DailyBetweenTimesModel(BaseClientModel):
         title = "daily_between_times"
 
     @validator("start_time", "end_time", pre=True)
-    def validate_execution_time(cls, v: str) -> Optional[str]:
+    def validate_execution_time(cls, v: Union[str, datetime]) -> Optional[str]:
+        if not isinstance(v, str):
+            v = v.strftime("%H:%M:%S")
         ret = validate_time_iso_string(v)
         if ret is not None:
             raise ValueError(ret)

@@ -11,7 +11,8 @@ WS_PING_TIMEOUT = 20 * 0.8
 
 DEFAULT_DOMAIN = ""
 MAX_ORDER_ID_LEN = 32
-HBOT_ORDER_ID_PREFIX = "hummingbot"
+HBOT_ORDER_ID_PREFIX = ""
+BROKER_ID = "hummingbotfound"
 
 PUBLIC_TRADE_CHANNEL_NAME = "spot/trade"
 PUBLIC_DEPTH_CHANNEL_NAME = "spot/depth50"
@@ -25,7 +26,7 @@ GET_ORDER_BOOK_PATH_URL = "spot/v1/symbols/book"
 CREATE_ORDER_PATH_URL = "spot/v1/submit_order"
 CANCEL_ORDER_PATH_URL = "spot/v2/cancel_order"
 GET_ACCOUNT_SUMMARY_PATH_URL = "spot/v1/wallet"
-GET_ORDER_DETAIL_PATH_URL = "spot/v1/order_detail"
+GET_ORDER_DETAIL_PATH_URL = "spot/v2/order_detail"
 GET_TRADE_DETAIL_PATH_URL = "spot/v1/trades"
 SERVER_TIME_PATH = "system/time"
 

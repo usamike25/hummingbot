@@ -63,36 +63,36 @@ class KuCoinConfigMap(BaseConnectorConfigMap):
 
 KEYS = KuCoinConfigMap.construct()
 
-OTHER_DOMAINS = ["kucoin_testnet"]
-OTHER_DOMAINS_PARAMETER = {"kucoin_testnet": "testnet"}
-OTHER_DOMAINS_EXAMPLE_PAIR = {"kucoin_testnet": "ETH-USDT"}
-OTHER_DOMAINS_DEFAULT_FEES = {"kucoin_testnet": [0.1, 0.1]}
+OTHER_DOMAINS = ["kucoin_hft"]
+OTHER_DOMAINS_PARAMETER = {"kucoin_hft": "hft"}
+OTHER_DOMAINS_EXAMPLE_PAIR = {"kucoin_hft": "ETH-USDT"}
+OTHER_DOMAINS_DEFAULT_FEES = {"kucoin_hft": DEFAULT_FEES}
 
 
-class KuCoinTestnetConfigMap(BaseConnectorConfigMap):
-    connector: str = Field(default="kucoin_testnet", client_data=None)
-    kucoin_testnet_api_key: SecretStr = Field(
+class KuCoinHFTConfigMap(BaseConnectorConfigMap):
+    connector: str = Field(default="kucoin_hft", client_data=None)
+    kucoin_hft_api_key: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(
-            prompt=lambda cm: "Enter your KuCoin Testnet API key",
+            prompt=lambda cm: "Enter your KuCoin HFT API key",
             is_secure=True,
             is_connect_key=True,
             prompt_on_new=True,
         )
     )
-    kucoin_testnet_secret_key: SecretStr = Field(
+    kucoin_hft_secret_key: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(
-            prompt=lambda cm: "Enter your KuCoin Testnet secret key",
+            prompt=lambda cm: "Enter your KuCoin HFT secret key",
             is_secure=True,
             is_connect_key=True,
             prompt_on_new=True,
         )
     )
-    kucoin_testnet_passphrase: SecretStr = Field(
+    kucoin_hft_passphrase: SecretStr = Field(
         default=...,
         client_data=ClientFieldData(
-            prompt=lambda cm: "Enter your KuCoin Testnet passphrase",
+            prompt=lambda cm: "Enter your KuCoin HFT passphrase",
             is_secure=True,
             is_connect_key=True,
             prompt_on_new=True,
@@ -100,7 +100,7 @@ class KuCoinTestnetConfigMap(BaseConnectorConfigMap):
     )
 
     class Config:
-        title = "kucoin_testnet"
+        title = "kucoin_hft"
 
 
-OTHER_DOMAINS_KEYS = {"kucoin_testnet": KuCoinTestnetConfigMap.construct()}
+OTHER_DOMAINS_KEYS = {"kucoin_hft": KuCoinHFTConfigMap.construct()}

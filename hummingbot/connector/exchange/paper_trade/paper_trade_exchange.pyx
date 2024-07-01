@@ -4,7 +4,7 @@ import asyncio
 import math
 import random
 from collections import defaultdict, deque
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from typing import Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from cpython cimport PyObject
@@ -205,6 +205,10 @@ cdef class PaperTradeExchange(ExchangeBase):
         return self._trading_pairs
 
     @property
+    def trading_pairs(self) -> List[str]:
+        return [trading_pair for trading_pair in self._trading_pairs]
+
+    @property
     def name(self) -> str:
         return self._exchange_name
 
@@ -332,6 +336,7 @@ cdef class PaperTradeExchange(ExchangeBase):
             string cpp_trading_pair_str = trading_pair_str.encode("utf8")
             string cpp_base_asset = self._trading_pairs[trading_pair_str].base_asset.encode("utf8")
             string cpp_quote_asset = quote_asset.encode("utf8")
+            string cpp_position = "NIL".encode("utf8")
             LimitOrdersIterator map_it
             SingleTradingPairLimitOrders *limit_orders_collection_ptr = NULL
             pair[LimitOrders.iterator, cppbool] insert_result
@@ -362,7 +367,8 @@ cdef class PaperTradeExchange(ExchangeBase):
                 <PyObject *> quantized_amount,
                 <PyObject *> None,
                 int(self._current_timestamp * 1e6),
-                0
+                0,
+                cpp_position,
             ))
         safe_ensure_future(self.trigger_event_async(
             self.MARKET_BUY_ORDER_CREATED_EVENT_TAG,
@@ -391,6 +397,7 @@ cdef class PaperTradeExchange(ExchangeBase):
             string cpp_trading_pair_str = trading_pair_str.encode("utf8")
             string cpp_base_asset = base_asset.encode("utf8")
             string cpp_quote_asset = self._trading_pairs[trading_pair_str].quote_asset.encode("utf8")
+            string cpp_position = "NIL".encode("utf8")
             LimitOrdersIterator map_it
             SingleTradingPairLimitOrders *limit_orders_collection_ptr = NULL
             pair[LimitOrders.iterator, cppbool] insert_result
@@ -420,7 +427,8 @@ cdef class PaperTradeExchange(ExchangeBase):
                 <PyObject *> quantized_amount,
                 <PyObject *> None,
                 int(self._current_timestamp * 1e6),
-                0
+                0,
+                cpp_position,
             ))
         safe_ensure_future(self.trigger_event_async(
             self.MARKET_SELL_ORDER_CREATED_EVENT_TAG,
@@ -646,8 +654,7 @@ cdef class PaperTradeExchange(ExchangeBase):
 
         order_candidate = OrderCandidate(
             trading_pair=trading_pair_str,
-            # Market orders are not maker orders
-            is_maker=False,
+            is_maker=True,
             order_type=OrderType.LIMIT,
             order_side=TradeType.BUY,
             amount=amount,
@@ -1071,7 +1078,7 @@ cdef class PaperTradeExchange(ExchangeBase):
                                         str trading_pair,
                                         object amount,
                                         object price=s_decimal_0):
-        amount = Decimal('%.7g' % amount)  # hard code to round to 8 significant digits
+        amount = amount.quantize(Decimal('1e-7'), rounding=ROUND_DOWN)
         if amount <= 1e-7:
             amount = Decimal("0")
         order_size_quantum = self.c_get_order_size_quantum(trading_pair, amount)

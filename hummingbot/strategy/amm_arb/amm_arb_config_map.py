@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Optional
 
 from hummingbot.client.config.config_validators import (
     validate_bool,
@@ -9,6 +10,7 @@ from hummingbot.client.config.config_validators import (
 )
 from hummingbot.client.config.config_var import ConfigVar
 from hummingbot.client.settings import AllConnectorSettings, required_exchanges, requried_connector_trading_pairs
+from hummingbot.strategy.amm_arb.rate_conversion import assets_equality
 
 
 def exchange_on_validated(value: str) -> None:
@@ -33,24 +35,63 @@ def market_2_on_validated(value: str) -> None:
     requried_connector_trading_pairs[amm_arb_config_map["connector_2"].value] = [value]
 
 
+def arb_asset_validator(value: str) -> Optional[str]:
+    base_1, quote_1 = amm_arb_config_map["market_1"].value.split("-")
+    base_2, quote_2 = amm_arb_config_map["market_2"].value.split("-")
+
+    if not ((assets_equality(value, base_1) or assets_equality(value, quote_1)) and (assets_equality(value, base_2) or assets_equality(value, quote_2))):
+        return f"{value} must be a base or quote asset in both market_1 and market_2"
+
+
+def arb_asset_prompt() -> str:
+    base_1, quote_1 = amm_arb_config_map["market_1"].value.split("-")
+    base_2, quote_2 = amm_arb_config_map["market_2"].value.split("-")
+    example = [base_1, quote_1, base_2, quote_2]
+    return "Enter the token trading pair you would like to trade on %s >>> " \
+        % (f" (e.g. {example})" if example else "")
+
+
 def market_1_prompt() -> str:
     connector = amm_arb_config_map.get("connector_1").value
     example = AllConnectorSettings.get_example_pairs().get(connector)
     return "Enter the token trading pair you would like to trade on %s%s >>> " \
-           % (connector, f" (e.g. {example})" if example else "")
+        % (connector, f" (e.g. {example})" if example else "")
 
 
 def market_2_prompt() -> str:
     connector = amm_arb_config_map.get("connector_2").value
     example = AllConnectorSettings.get_example_pairs().get(connector)
     return "Enter the token trading pair you would like to trade on %s%s >>> " \
-           % (connector, f" (e.g. {example})" if example else "")
+        % (connector, f" (e.g. {example})" if example else "")
 
 
 def order_amount_prompt() -> str:
     trading_pair = amm_arb_config_map["market_1"].value
     base_asset, quote_asset = trading_pair.split("-")
     return f"What is the amount of {base_asset} per order? >>> "
+
+
+def get_fixed_pair(is_quote):
+    base_1, quote_1 = amm_arb_config_map["market_1"].value.split("-")
+    base_2, quote_2 = amm_arb_config_map["market_2"].value.split("-")
+    arb_asset = amm_arb_config_map["arb_asset"].value
+    if is_quote:
+        b_1 = base_1 if not assets_equality(arb_asset, base_1) else quote_1
+        b_2 = base_2 if not assets_equality(arb_asset, base_2) else quote_2
+    else:
+        b_1 = base_1 if assets_equality(arb_asset, base_1) else quote_1
+        b_2 = base_2 if assets_equality(arb_asset, base_2) else quote_2
+    return f"{b_1}-{b_2}"
+
+
+def fixed_base_conversion_rate_prompt() -> str:
+    fixed_pair = get_fixed_pair(is_quote=False)
+    return f"Would you like to set a fixed exchange rate for the pair {fixed_pair} ? Enter '0' for no, or specify the fixed rate directly. >>> "
+
+
+def fixed_quote_conversion_rate_prompt() -> str:
+    fixed_pair = get_fixed_pair(is_quote=False)
+    return f"Would you like to set a fixed exchange rate for the pair {fixed_pair} ? Enter '0' for no, or specify the fixed rate directly. >>> "
 
 
 amm_arb_config_map = {
@@ -82,6 +123,19 @@ amm_arb_config_map = {
         prompt_on_new=True,
         validator=market_2_validator,
         on_validated=market_2_on_validated),
+    "arb_asset": ConfigVar(
+        key="arb_asset",
+        prompt="Specify the asset for which you wish to calculate arbitrage >>> ",
+        prompt_on_new=True,
+        validator=arb_asset_validator,
+        type_str="str"),
+
+    # todo this could be donne differently
+    "fixed_conversion_rate_dict": ConfigVar(
+        key="fixed_conversion_rate_dict",
+        prompt="",
+        prompt_on_new=False,
+        type_str="decimal"),
     "order_amount": ConfigVar(
         key="order_amount",
         prompt=order_amount_prompt,
@@ -101,7 +155,7 @@ amm_arb_config_map = {
                "(Enter 1 for 1%)? >>> ",
         prompt_on_new=True,
         default=lambda: Decimal(1) if amm_arb_config_map["connector_1"].value in sorted(
-            AllConnectorSettings.get_gateway_evm_amm_connector_names().union(
+            AllConnectorSettings.get_gateway_amm_connector_names().union(
                 AllConnectorSettings.get_gateway_clob_connector_names()
             )
         ) else Decimal(0),
@@ -113,7 +167,7 @@ amm_arb_config_map = {
                " (Enter 1 for 1%)? >>> ",
         prompt_on_new=True,
         default=lambda: Decimal(1) if amm_arb_config_map["connector_2"].value in sorted(
-            AllConnectorSettings.get_gateway_evm_amm_connector_names().union(
+            AllConnectorSettings.get_gateway_amm_connector_names().union(
                 AllConnectorSettings.get_gateway_clob_connector_names()
             )
         ) else Decimal(0),
@@ -142,4 +196,18 @@ amm_arb_config_map = {
         default=600,
         validator=lambda v: validate_int(v, min_value=1, inclusive=True),
         type_str="int"),
+    "dex_orders_only": ConfigVar(
+        key="dex_orders_only",
+        prompt="Do you want to place DEX orders only to make sure the DEX follows the CEX price? >>> ",
+        prompt_on_new=True,
+        default=False,
+        validator=validate_bool,
+        type_str="bool"),
+    "min_required_quote_balance": ConfigVar(
+        key="min_required_quote_balance",
+        prompt="Minimum required quote balance to keep in both exchanges that cannot be touched by the arbitrage strategy >>> ",
+        prompt_on_new=True,
+        default=Decimal("100"),
+        type_str="decimal")
+
 }
