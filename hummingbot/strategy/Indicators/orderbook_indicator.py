@@ -17,7 +17,7 @@ class OrderbookIndicator(BaseIndicator):
     def scale_to_0_1(arr):
         return np.interp(arr, (arr.min(), arr.max()), (0, 1))
 
-    def slippage_from_mid_price(self, is_buy: bool, amount: Decimal):
+    def get_slippage_for_volume(self, is_buy: bool, amount: Decimal):
         mid_price = self.market.get_mid_price()
         execution_price = self.market.get_price_for_volume(is_buy, amount).result_price
         self.logger().info(f"mid_price: {mid_price}, execution_price: {execution_price}")
