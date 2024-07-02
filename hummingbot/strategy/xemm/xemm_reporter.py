@@ -73,7 +73,7 @@ class TradeRecord:
         :return: Exit price of the trade
         """
         total_amount = self.exit_amount
-        exit_price = sum([fill.fill_price * fill.fill_base_amount for fill in self.exit_in_flight_order.order_fills]) / total_amount
+        exit_price = sum(fill.fill_price * fill.fill_base_amount for fill in self.exit_in_flight_order.order_fills.values()) / total_amount
         self.exit_price = exit_price
 
     def set_exit_side(self):
@@ -95,7 +95,7 @@ class TradeRecord:
         """
         Sets the exit trade ids of the trade as the trade ids of the exit fills.
         """
-        self.exit_trade_ids = [fill.trade_id for fill in self.exit_in_flight_order.order_fills]
+        self.exit_trade_ids = [fill.trade_id for fill in self.exit_in_flight_order.order_fills.values()]
 
     # def add_exit_fill_event(self, event: OrderFilledEvent):
     #     self.exit_fills.append(event)
