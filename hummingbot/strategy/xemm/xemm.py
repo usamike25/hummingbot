@@ -1250,6 +1250,7 @@ class XEMMStrategy(StrategyPyBase):
             price = (best_ba_price * (Decimal("1") - self.hedge_order_slippage_tolerance)) if self.taker_order_type == OrderType.LIMIT else best_ba_price
             order_id_1 = self.sell(hedge_exchange, hedge_pair, quantized_amount, self.taker_order_type, price)
 
+        self.order_id_creation_timestamp.append((hedge_exchange, order_id_1, time.perf_counter()))
         self.logger().info(
             f"execute_hedge: placed hedge {'buy' if hedge_order_is_buy else 'sell'} "
             f"{hedge_exchange}, amount: {quantized_amount}, budget base: "
@@ -1334,7 +1335,7 @@ class XEMMStrategy(StrategyPyBase):
                                    entry_amount=event.amount,
                                    entry_price=event.price,
                                    entry_side="buy" if is_buy else "sell",
-                                   entry_timestamp=event.timestamp,
+                                   entry_timestamp=time.perf_counter(),
                                    entry_latency=self.order_latency.get(event.order_id, None),
                                    )
         self.logger().info(f"place_hedge: trade_record: {trade_record}")
@@ -1661,21 +1662,20 @@ class XEMMStrategy(StrategyPyBase):
             # handel trade records
             self.logger().info(f"handle_order_complete_event: hedge_trades: {self.hedge_trades}")
             exchange_trade_id = self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
-            try:
-                for trade_record in self.hedge_trades[exchange_trade_id]["trade_records"]:
-                    exit_in_flight_order = self.connectors[exchange].in_flight_orders[event.order_id]
-                    trade_record.set_exit_trade(exit_exchange=exchange,
-                                                exit_order_id=event.order_id,
-                                                exit_latency=self.order_latency.get(event.order_id, None),
-                                                exit_last_reported_mid_price=self.last_recorded_mid_prices.get(exchange),
-                                                exit_in_flight_order=exit_in_flight_order)
 
-                    self.logger().info(f"handle_order_complete_event: trade_record: {trade_record}")
-                    if self.report_to_dbs:
-                        market_trading_pair_tuple = MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1])
-                        safe_ensure_future(self.reporter.send_trade_record_data(market_trading_pair_tuple, trade_record))
-            except Exception as e:
-                self.logger().info(f"handle_order_complete_event: Exception: {e}")
+            for trade_record in self.hedge_trades[exchange_trade_id]["trade_records"]:
+                exit_in_flight_order = self.connectors[exchange].in_flight_orders[event.order_id]
+                trade_record.set_exit_trade(exit_exchange=exchange,
+                                            exit_order_id=event.order_id,
+                                            exit_latency=self.order_latency.get(event.order_id, None),
+                                            exit_last_reported_mid_price=self.last_recorded_mid_prices.get(exchange),
+                                            exit_timestamp=time.perf_counter(),
+                                            exit_in_flight_order=exit_in_flight_order)
+
+                self.logger().info(f"handle_order_complete_event: trade_record: {trade_record}")
+                if self.report_to_dbs:
+                    market_trading_pair_tuple = MarketTradingPairTuple(self.connectors[exchange], trading_pair, trading_pair.split("-")[0], trading_pair.split("-")[1])
+                    safe_ensure_future(self.reporter.send_trade_record_data(market_trading_pair_tuple, trade_record))
 
             del self.hedge_order_id_to_filled_maker_exchange_trade_id[event.order_id]
             del self.hedge_trades[exchange_trade_id]
