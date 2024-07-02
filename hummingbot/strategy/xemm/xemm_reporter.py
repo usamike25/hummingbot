@@ -60,17 +60,13 @@ class TradeRecord:
 
     def set_exit_amount(self):
         """
-        Calculates the exit amount of the trade as the sum of the exit fills.
-
-        :return: Exit amount of the trade
+        Sets the exit amount of the trade as the sum of the exit fills.
         """
         self.exit_amount = self.exit_in_flight_order.executed_amount_base
 
     def set_exit_price(self):
         """
-        Calculates the exit price of the trade as the weighted average of the exit fills.
-
-        :return: Exit price of the trade
+        Sets the exit price of the trade as the weighted average of the exit fills.
         """
         total_amount = self.exit_amount
         exit_price = sum(fill.fill_price * fill.fill_base_amount for fill in self.exit_in_flight_order.order_fills.values()) / total_amount
@@ -78,9 +74,7 @@ class TradeRecord:
 
     def set_exit_side(self):
         """
-        Calculates the exit side of the trade as the side of the exit fills.
-
-        :return: Exit side of the trade
+        Sets the exit side of the trade as the side of the exit fills.
         """
         self.exit_side = "buy" if self.exit_in_flight_order.trade_type == TradeType.BUY else "sell"
 
@@ -92,9 +86,7 @@ class TradeRecord:
 
     def set_pnl_pct(self):
         """
-        Calculates the profit/loss of the trade as a percentage.
-
-        :return: Profit/loss of the trade as a percentage
+        Sets the profit/loss of the trade as a percentage.
         """
         if self.entry_price == 0:
             self.pnl_pct = Decimal("0")  # To avoid division by zero
@@ -105,9 +97,7 @@ class TradeRecord:
 
     def set_pnl_quote(self):
         """
-        Calculates the profit/loss of the trade in quote currency.
-
-        :return: Profit/loss of the trade in quote currency
+        Sets the profit/loss of the trade in quote currency.
         """
         pnl_fraction = self.get_pnl_pct() / Decimal("100")
         trade_amount = min(self.entry_amount, self.exit_amount)  # min, because one hedge can relate to many entry ids
@@ -116,9 +106,7 @@ class TradeRecord:
 
     def set_pnl_base(self):
         """
-        Calculates the profit/loss of the trade in base currency.
-
-        :return: Profit/loss of the trade in base currency
+        Sets the profit/loss of the trade in base currency.
         """
         pnl_fraction = self.get_pnl_pct() / Decimal("100")
         trade_amount = min(self.entry_amount, self.exit_amount)  # min, because one hedge can relate to many entry ids
@@ -126,9 +114,17 @@ class TradeRecord:
         self.pnl_base = Decimal(pnl_base)
 
     def set_trade_duration(self):
+        """
+        Sets the duration of the trade.
+        """
         self.trade_duration = self.exit_timestamp - self.entry_timestamp
 
     def set_slippage_from_mid_price(self, last_reported_mid_price: Decimal):
+        """
+        Sets the slippage from the last reported mid price.
+
+        :param last_reported_mid_price: The last reported mid price of the asset.
+        """
         slippage = Decimal(abs(((self.exit_price - last_reported_mid_price) / last_reported_mid_price) * 100)) if last_reported_mid_price is not None else Decimal(0)
         self.slippage = slippage
 
@@ -142,7 +138,7 @@ class TradeRecord:
         return self.pnl_pct
 
     def __str__(self):
-        return (f"Trade(Entry: [ID: {self.entry_trade_id}, Exchange: {self.entry_exchange}, Price: {self.entry_price}, "
+        return (f"TradeRecord: Entry: [ID: {self.entry_trade_id}, Exchange: {self.entry_exchange}, Price: {self.entry_price}, "
                 f"Amount: {self.entry_amount}, Side: {self.entry_side}, Timestamp: {self.entry_timestamp}, Order ID: {self.entry_order_id}, Latency: {self.entry_latency}], "
                 f"Exit: [IDs: {self.exit_trade_ids}, Exchange: {self.exit_exchange}, Price: {self.exit_price}, "
                 f"Amount: {self.exit_amount}, Side: {self.exit_side}, Timestamp: {self.exit_timestamp}, Order ID: {self.exit_order_id}, Latency: {self.exit_latency}], "
