@@ -1,10 +1,10 @@
+import asyncio
 import logging
-import threading
-import time
 
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.event.event_forwarder import SourceInfoEventForwarder
 from hummingbot.core.event.events import OrderBookEvent, OrderBookTradeEvent
+from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 
 s_logger = None
@@ -36,10 +36,8 @@ class BaseIndicator:
         self.order_book_trade_event = SourceInfoEventForwarder(self.process_public_trade)
         self.order_book = market.order_book
         self.order_book.add_listener(OrderBookEvent.TradeEvent, self.order_book_trade_event)
-        self.running = True
-        self.thread = threading.Thread(target=self.run_main_loop)
-        self.thread.daemon = True  # Daemonize the thread to ensure it exits when the main program does
-        self.thread.start()
+        self._running = True
+        self._main_loop_task = safe_ensure_future(self.run_main_loop())
 
     def process_public_trade(self, event_tag: int, market: ConnectorBase, event: OrderBookTradeEvent):
         """
@@ -50,34 +48,36 @@ class BaseIndicator:
             market (ConnectorBase): The market where the event occurred.
             event (OrderBookTradeEvent): The trade event details.
         """
-        pass
+        raise NotImplementedError("process_public_trade must be implemented by the subclass.")
 
-    def run_main_loop(self):
+    async def run_main_loop(self):
         """
         Main loop
         """
-        time.sleep(1)
+        await asyncio.sleep(1)
 
         while self.running:
             self.main_function()
-            time.sleep(self.main_loop_update_interval_s)
+            await asyncio.sleep(self.main_loop_update_interval_s)
 
     def main_function(self):
         """
         Placeholder for the main function of the indicator.
         """
-        pass
+        raise NotImplementedError("main_function must be implemented by the subclass.")
 
     def stop(self):
         """
         Signal the main loop to stop and wait for the thread to finish.
         """
-        self.running = False
-        self.thread.join()
-        self.on_stop()
+        self._running = False
+        self._main_loop_task.cancel()
 
     def on_stop(self):
         """
         Placeholder for the on stop function of the indicator.
         """
-        pass
+        raise NotImplementedError("on_stop must be implemented by the subclass.")
+
+    def __del__(self):
+        self.stop()
