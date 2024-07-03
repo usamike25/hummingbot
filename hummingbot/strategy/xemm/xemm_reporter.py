@@ -121,7 +121,7 @@ class TradeRecord:
 
     def set_slippage_from_mid_price(self, last_reported_mid_price: Decimal):
         """
-        Sets the slippage from the last reported mid price.
+        Sets the slippage from the last reported mid price as pct.
 
         :param last_reported_mid_price: The last reported mid price of the asset.
         """
