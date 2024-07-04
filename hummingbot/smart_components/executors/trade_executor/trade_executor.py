@@ -16,9 +16,9 @@ from hummingbot.core.event.events import (
 )
 from hummingbot.core.rate_oracle.rate_oracle import RateOracle
 from hummingbot.logger import HummingbotLogger
-from hummingbot.smart_components.executors.executor_base import ExecutorBase
 from hummingbot.smart_components.executors.trade_executor.data_types import TradeExecutorConfig, TradeExecutorStatus
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy_v2.executors.executor_base import ExecutorBase
 
 
 class TradeExecutor(ExecutorBase):
