@@ -20,7 +20,6 @@ class OrderbookIndicator(BaseIndicator):
     def get_slippage_for_volume(self, is_buy: bool, amount: Decimal):
         mid_price = self.market.get_mid_price()
         execution_price = self.market.get_price_for_volume(is_buy, amount).result_price
-        self.logger().info(f"mid_price: {mid_price}, execution_price: {execution_price}")
         if execution_price.is_nan():
             return execution_price  # returns nan
 
@@ -86,7 +85,7 @@ class OrderbookIndicator(BaseIndicator):
             intercept = 0
             return slope, intercept
 
-        bid_slope_zero, _ = linear_regression_with_intercept_zero(bid_prices, bid_cumulative_quantities)
-        ask_slope_zero, _ = linear_regression_with_intercept_zero(ask_prices, ask_cumulative_quantities)
+        bid_slope_zero, _ = linear_regression_with_intercept_zero(bid_prices[:len(bid_cumulative_quantities)], bid_cumulative_quantities)
+        ask_slope_zero, _ = linear_regression_with_intercept_zero(ask_prices[:len(ask_cumulative_quantities)], ask_cumulative_quantities)
 
         return bid_slope_zero, ask_slope_zero

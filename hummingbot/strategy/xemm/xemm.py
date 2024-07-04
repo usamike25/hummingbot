@@ -126,15 +126,7 @@ class XEMMStrategy(StrategyPyBase):
         self.active_maker_orders_ids = ActiveOrder()
         self.active_taker_orders_ids = ActiveOrder()
 
-        self.reporter = XEMMReporter(sb_order_tracker=self._sb_order_tracker,
-                                     market_pairs=self.all_trading_pair_tuples,
-                                     bot_identifier=self.bot_identifier,
-                                     monitor_market_data=self.monitor_market_data,
-                                     monitor_balance_data=self.monitor_balance_data,
-                                     monitor_open_order_data=self.monitor_open_order_data,
-                                     asset_price_delegate=None,
-                                     bucket=self.bucket,
-                                     interval=int(self.interval)) if self.report_to_dbs else None
+        self.reporter = None
 
         # convert floats to Decimal
         for ex, ex_dict in self.exchange_stats.items():
@@ -188,6 +180,18 @@ class XEMMStrategy(StrategyPyBase):
 
     def set_variables(self):
         self.subscribe_to_orderbook_trade_event()
+        self.reporter = XEMMReporter(sb_order_tracker=self._sb_order_tracker,
+                                     market_pairs=self.all_trading_pair_tuples,
+                                     bot_identifier=self.bot_identifier,
+                                     monitor_market_data=self.monitor_market_data,
+                                     monitor_balance_data=self.monitor_balance_data,
+                                     monitor_open_order_data=self.monitor_open_order_data,
+                                     asset_price_delegate=None,
+                                     bucket=self.bucket,
+                                     interval=int(self.interval)) if self.report_to_dbs else None
+        if self.report_to_dbs:
+            self.reporter.start()
+
         for exchange, token in self.markets.items():
             self.stop_tracking_all_orders(exchange)
             pair = list(token)[0]
@@ -251,8 +255,6 @@ class XEMMStrategy(StrategyPyBase):
             self.last_recorded_mid_prices[exchange] = mid_price
 
     def start(self, clock: Clock, timestamp: float):
-        if self.report_to_dbs:
-            self.reporter.start()
         super().start(clock, timestamp)
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 

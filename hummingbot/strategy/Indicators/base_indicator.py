@@ -48,7 +48,7 @@ class BaseIndicator:
             market (ConnectorBase): The market where the event occurred.
             event (OrderBookTradeEvent): The trade event details.
         """
-        raise NotImplementedError("process_public_trade must be implemented by the subclass.")
+        pass
 
     async def run_main_loop(self):
         """
@@ -56,7 +56,7 @@ class BaseIndicator:
         """
         await asyncio.sleep(1)
 
-        while self.running:
+        while self._running:
             self.main_function()
             await asyncio.sleep(self.main_loop_update_interval_s)
 
