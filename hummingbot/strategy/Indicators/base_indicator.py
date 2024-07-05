@@ -71,7 +71,10 @@ class BaseIndicator:
         Signal the main loop to stop and wait for the thread to finish.
         """
         self._running = False
-        self._main_loop_task.cancel()
+        try:
+            self._main_loop_task.cancel()
+        except AttributeError:
+            pass
 
     def on_stop(self):
         """

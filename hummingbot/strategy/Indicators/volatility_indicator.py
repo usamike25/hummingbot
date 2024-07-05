@@ -54,7 +54,8 @@ class VolatilityIndicator(BaseIndicator):
 
     def calculate(self):
         arr = np.array(self.prices)
-        volatility = np.nanstd(np.diff(arr)) * (np.sqrt(1 / self.main_loop_update_interval_s))  # adjust to get vol in ticks per quare root
+        mid_price = float(self.market.get_mid_price())
+        volatility = np.nanstd(np.diff(arr) / mid_price) * (np.sqrt(1 / self.main_loop_update_interval_s))  # adjust to get vol in ticks per quare root
 
         self.vol = volatility
         if not np.isnan(self.vol):
