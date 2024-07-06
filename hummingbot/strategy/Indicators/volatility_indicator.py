@@ -33,14 +33,18 @@ class VolatilityIndicator(BaseIndicator):
         if not np.isnan(self.vol):
             return Decimal(self.vol)
         else:
-            return Decimal(0)
+            return Decimal("0")
+
+    @property
+    def current_value_fraction(self):
+        if not np.isnan(self.vol):
+            return Decimal(self.vol) / self.market.get_mid_price()
+        else:
+            return Decimal("0")
 
     @property
     def current_value_pct(self):
-        if not np.isnan(self.vol):
-            return (Decimal(self.vol) / self.market.get_mid_price()) * Decimal("100.0")
-        else:
-            return Decimal(0)
+        return self.current_value_fraction * Decimal("100")
 
     def append_price(self, price):
         if self._update_every_x_prices < self.counter:
@@ -54,8 +58,7 @@ class VolatilityIndicator(BaseIndicator):
 
     def calculate(self):
         arr = np.array(self.prices)
-        mid_price = float(self.market.get_mid_price())
-        volatility = np.nanstd(np.diff(arr) / mid_price) * (np.sqrt(1 / self.main_loop_update_interval_s))  # adjust to get vol in ticks per quare root
+        volatility = np.nanstd(np.diff(arr)) * (np.sqrt(1 / self.main_loop_update_interval_s))  # adjust to get vol in ticks per quare root
 
         self.vol = volatility
         if not np.isnan(self.vol):

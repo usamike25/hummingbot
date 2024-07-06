@@ -37,7 +37,6 @@ class TradeExecutor(ExecutorBase):
         return self.trade_status in [TradeExecutorStatus.COMPLETED, TradeExecutorStatus.FAILED]
 
     def __init__(self, strategy: ScriptStrategyBase, config: TradeExecutorConfig, update_interval: float = 1.0):
-        self.logger().info(" TradeExecutor innit")
 
         super().__init__(strategy=strategy, connectors=[config.market.connector_name], config=config, update_interval=update_interval)
 
@@ -281,6 +280,7 @@ class TradeExecutor(ExecutorBase):
         return pnl
 
     def stop_trade(self):
+        self.logger().info("Stopping trade")
         self.trade_status = TradeExecutorStatus.COMPLETED
         if self._active_open_order_id:
             self._strategy.cancel(self.market.connector_name, self.market.trading_pair, self._active_open_order_id)

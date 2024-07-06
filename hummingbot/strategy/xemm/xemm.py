@@ -35,6 +35,7 @@ from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.strategy.Indicators.volatility_indicator import VolatilityIndicator
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.strategy_py_base import StrategyPyBase
+from hummingbot.strategy.xemm.auto_buy_sell_inventory import AutoBuySellInventory
 from hummingbot.strategy.xemm.utils import ActiveOrder
 from hummingbot.strategy.xemm.xemm_reporter import TradeRecord, XEMMReporter
 
@@ -99,6 +100,7 @@ class XEMMStrategy(StrategyPyBase):
                     monitor_balance_data: bool,
                     monitor_market_data: bool,
                     taker_order_type: str,
+                    auto_buy_sell_inventory_base_amount: Decimal
                     ):
         self.exchange_stats = exchange_stats
         self.connectors = connectors
@@ -118,6 +120,7 @@ class XEMMStrategy(StrategyPyBase):
         self.volatility_to_spread_multiplier = volatility_to_spread_multiplier
         self.idle_amount_in_quote = idle_amount_in_quote
         self.taker_order_type = OrderType.MARKET if taker_order_type == "market" else OrderType.LIMIT
+        self.auto_buy_sell_inventory_base_amount = Decimal(auto_buy_sell_inventory_base_amount)
         self.min_profit_dict = {}
         self.max_order_age_seconds = 180
         self.min_notional_size_dict = {}  # "kucoin": 1 # custom min_notational. leave blank if not required
@@ -127,6 +130,7 @@ class XEMMStrategy(StrategyPyBase):
         self.active_taker_orders_ids = ActiveOrder()
 
         self.reporter = None
+        self.auto_buy_sell_inventory = None
 
         # convert floats to Decimal
         for ex, ex_dict in self.exchange_stats.items():
@@ -180,6 +184,10 @@ class XEMMStrategy(StrategyPyBase):
 
     def set_variables(self):
         self.subscribe_to_orderbook_trade_event()
+        if not self.auto_buy_sell_inventory_base_amount == Decimal(0):
+            self.auto_buy_sell_inventory = AutoBuySellInventory(strategy=self, market_info_list=self.all_trading_pair_tuples, amount=self.auto_buy_sell_inventory_base_amount)
+            self.auto_buy_sell_inventory.buy_inventory()
+
         self.reporter = XEMMReporter(sb_order_tracker=self._sb_order_tracker,
                                      market_pairs=self.all_trading_pair_tuples,
                                      bot_identifier=self.bot_identifier,
@@ -209,9 +217,6 @@ class XEMMStrategy(StrategyPyBase):
             self.orderbook_indicator[exchange] = {}
             self.trades_indicator[exchange] = {}
             self.volatility_indicator[exchange][pair] = VolatilityIndicator(market=market_trading_pair_tuple, main_loop_update_interval_s=1)
-            # self.orderbook_indicator[exchange][pair] = OrderbookIndicator(market=market_trading_pair_tuple, main_loop_update_interval_s=1)
-            # self.trades_indicator[exchange][pair] = TradesIndicator(market=market_trading_pair_tuple, main_loop_update_interval_s=1)
-
         self.status_ready = True
 
     def tick(self, timestamp: float):
@@ -219,11 +224,9 @@ class XEMMStrategy(StrategyPyBase):
         if not self._all_markets_ready:
             self._all_markets_ready = all([market.ready for market in self.active_markets])
             if not self._all_markets_ready:
-                # Markets not ready yet. Don't do anything.
                 self.logger().warning("Markets are not ready. No market making trades are permitted.")
                 return
             else:
-                # Markets are ready, ok to proceed.
                 self.logger().info("Markets are ready.")
 
         if not self.status_ready:
@@ -483,7 +486,7 @@ class XEMMStrategy(StrategyPyBase):
         possible_prices_list_bid = []
         possible_prices_list_ask = []
 
-        vol = self.volatility_indicator[exchange][pair].current_value  # vol in decimal
+        vol = self.volatility_indicator[exchange][pair].current_value_fraction  # vol in decimal
         adjusted_vol = self.adjusted_vol(vol)
         min_profit = self.min_profit_dict[exchange]
         maker_fee = self.exchange_stats[exchange]["maker_fee"]
@@ -572,7 +575,7 @@ class XEMMStrategy(StrategyPyBase):
             possible_prices_list_ask_dict[i] = []
             possible_prices_list_bid_dict[i] = []
 
-        vol = self.volatility_indicator[exchange][pair].current_value  # vol in decimal
+        vol = self.volatility_indicator[exchange][pair].current_value_fraction  # vol in decimal
         adjusted_vol = self.adjusted_vol(vol)
         maker_fee = self.exchange_stats[exchange]["maker_fee"]
 
@@ -950,7 +953,7 @@ class XEMMStrategy(StrategyPyBase):
         if vol <= Decimal(0.0005):
             return Decimal(0)
         else:
-            adjusted_vol = (vol - Decimal(0.0005))  # ** 2
+            adjusted_vol = (vol - Decimal(0.0005))
             return adjusted_vol * self.volatility_to_spread_multiplier
 
     def is_above_min_order_size(self, exchange, amount, price):
@@ -1449,10 +1452,11 @@ class XEMMStrategy(StrategyPyBase):
         data: List[Any] = []
         for connector_name, connector in self.connectors.items():
             pair = list(self.markets[connector_name])[0]
-            vol_decimal = self.volatility_indicator[connector_name][pair].current_value
+            vol_decimal = self.volatility_indicator[connector_name][pair].current_value_fraction
             vol_pct = self.volatility_indicator[connector_name][pair].current_value_pct
             vol_adjusted = self.adjusted_vol(vol_decimal)
             vol_additional_spread = vol_adjusted * Decimal(100)
+            self.logger().info(f"get_exchange_stats_df: {connector_name}, vol: {vol_decimal}, vol_pct: {vol_pct}, vol_adjusted: {vol_adjusted}, vol_additional_spread: {vol_additional_spread}")
             roundtrip_latency = sum(self.latency_roundtrip[connector_name]) / len(self.latency_roundtrip[connector_name]) if self.latency_roundtrip[connector_name] else 0
             spread = ((self.connectors[connector_name].get_price(pair, True) - self.connectors[connector_name].get_price(pair, False)) / self.connectors[connector_name].get_price(pair, True)) * 100
 
@@ -1766,6 +1770,7 @@ class XEMMStrategy(StrategyPyBase):
         """
         if self.report_to_dbs:
             self.reporter.stop()
+
         super().stop(clock)
 
         for exchange, token in self.markets.items():
@@ -1775,3 +1780,6 @@ class XEMMStrategy(StrategyPyBase):
                     self.volatility_indicator[exchange][pair].stop()
                 except KeyError:
                     pass
+
+        if not self.auto_buy_sell_inventory_base_amount == Decimal(0):
+            self.auto_buy_sell_inventory.sell_inventory()

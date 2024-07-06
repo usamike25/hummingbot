@@ -39,6 +39,8 @@ hedge_order_slippage_tolerance: 0.005
 
 taker_order_type: "limit" # "limit" or "market"
 
+auto_buy_sell_inventory_base_amount: 0 # buy/sell inventory at start and end of strategy. 0 = disabled
+
 report_to_dbs: False
 bucket: null
 interval: null

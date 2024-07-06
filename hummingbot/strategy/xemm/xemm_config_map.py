@@ -134,5 +134,11 @@ xemm_config_map = {
         prompt="taker_order_type: limit, market ? >>> ",
         default="market",
         type_str="str"),
+    "auto_buy_sell_inventory_base_amount": ConfigVar(
+        key="auto_buy_sell_inventory_base_amount",
+        prompt="auto_buy_sell_inventory_base_amount ? >>> ",
+        default=Decimal("0"),
+        validator=lambda v: validate_decimal(v),
+        type_str="decimal"),
 
 }
