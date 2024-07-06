@@ -4,6 +4,7 @@ from typing import Union
 
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PositionAction, TradeType
+from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import (
     BuyOrderCompletedEvent,
     BuyOrderCreatedEvent,
@@ -17,6 +18,7 @@ from hummingbot.core.event.events import (
 from hummingbot.core.rate_oracle.rate_oracle import RateOracle
 from hummingbot.logger import HummingbotLogger
 from hummingbot.smart_components.executors.trade_executor.data_types import TradeExecutorConfig, TradeExecutorStatus
+from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
 from hummingbot.strategy_v2.executors.executor_base import ExecutorBase
 
@@ -40,6 +42,8 @@ class TradeExecutor(ExecutorBase):
         super().__init__(strategy=strategy, connectors=[config.market.connector_name], config=config, update_interval=update_interval)
 
         self.market = config.market
+        self.market_info = MarketTradingPairTuple(self.connectors[config.market.connector_name], config.market.trading_pair, config.market.trading_pair.split("-")[0],
+                                                  config.market.trading_pair.split("-")[1])
         self.trading_pair = config.market.trading_pair
         self.order_amount = config.order_amount
 
@@ -109,7 +113,12 @@ class TradeExecutor(ExecutorBase):
         return sum([order.cum_fees_quote for order in all_orders])
 
     def validate_sufficient_balance(self):
-        pass
+        base_balance = self.get_balance(self.market_info.market.name, self.market_info.base_asset)
+        quote_balance = self.get_balance(self.market_info.market.name, self.market_info.quote_asset)
+        if self.is_buy:
+            return base_balance >= self.order_amount * self.market_info.get_mid_price()
+        else:
+            return quote_balance >= self.order_amount
 
     def is_above_min_order_size(self, market, amount, price, trading_pair):
         return True if market.trading_rules[trading_pair].min_notional_size * Decimal(1.1) < (amount * price) and market.trading_rules[trading_pair].min_order_size < amount else False
@@ -149,11 +158,20 @@ class TradeExecutor(ExecutorBase):
         best_price = self.get_best_price(self.market.connector_name, self.market.trading_pair, self.is_buy, amount)
         order_type = self.open_order_type if is_open else self.close_order_type
         position_action = PositionAction.OPEN if is_open else PositionAction.CLOSE
+
+        order = OrderCandidate(trading_pair=self.market.trading_pair,
+                               is_maker=True,
+                               order_type=order_type,
+                               order_side=TradeType.BUY if is_buy else TradeType.SELL,
+                               amount=Decimal(amount),
+                               price=best_price, )
+        order_adjusted = self.connectors[self.market.connector_name].budget_checker.adjust_candidate(order, all_or_none=False)
+
         side = TradeType.BUY if is_buy else TradeType.SELL
-        if self.is_above_min_order_size(self.connectors[self.market.connector_name], amount, best_price, self.market.trading_pair):
+        if self.is_above_min_order_size(self.connectors[self.market.connector_name], order_adjusted.amount, best_price, self.market.trading_pair):
             order_id = self.place_order(connector_name=self.market.connector_name,
                                         trading_pair=self.market.trading_pair, order_type=order_type,
-                                        side=side, amount=amount, price=best_price,
+                                        side=side, amount=order_adjusted.amount, price=best_price,
                                         position_action=position_action)
             if is_open:
                 self._active_open_order_id = order_id
