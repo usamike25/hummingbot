@@ -1456,7 +1456,6 @@ class XEMMStrategy(StrategyPyBase):
             vol_pct = self.volatility_indicator[connector_name][pair].current_value_pct
             vol_adjusted = self.adjusted_vol(vol_decimal)
             vol_additional_spread = vol_adjusted * Decimal(100)
-            self.logger().info(f"get_exchange_stats_df: {connector_name}, vol: {vol_decimal}, vol_pct: {vol_pct}, vol_adjusted: {vol_adjusted}, vol_additional_spread: {vol_additional_spread}")
             roundtrip_latency = sum(self.latency_roundtrip[connector_name]) / len(self.latency_roundtrip[connector_name]) if self.latency_roundtrip[connector_name] else 0
             spread = ((self.connectors[connector_name].get_price(pair, True) - self.connectors[connector_name].get_price(pair, False)) / self.connectors[connector_name].get_price(pair, True)) * 100
 
@@ -1771,6 +1770,9 @@ class XEMMStrategy(StrategyPyBase):
         if self.report_to_dbs:
             self.reporter.stop()
 
+        if not self.auto_buy_sell_inventory_base_amount == Decimal(0):
+            self.auto_buy_sell_inventory.sell_inventory()
+
         super().stop(clock)
 
         for exchange, token in self.markets.items():
@@ -1780,6 +1782,3 @@ class XEMMStrategy(StrategyPyBase):
                     self.volatility_indicator[exchange][pair].stop()
                 except KeyError:
                     pass
-
-        if not self.auto_buy_sell_inventory_base_amount == Decimal(0):
-            self.auto_buy_sell_inventory.sell_inventory()

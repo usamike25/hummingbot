@@ -20,10 +20,11 @@ class AutoBuySellInventory:
             cls._logger = logging.getLogger(__name__)
         return cls._logger
 
-    def __init__(self, strategy: StrategyPyBase, market_info_list: list, amount: Decimal):
+    def __init__(self, strategy: StrategyPyBase, market_info_list: list, amount: Decimal, asset: str):
         self.strategy = strategy
         self.market_info_list = market_info_list
         self.amount = amount
+        self.asset = asset
         self.amount_bought = Decimal("0")
         self._buy_trade_executor = None
         self._sell_trade_executors = []
@@ -48,6 +49,17 @@ class AutoBuySellInventory:
         if self._buy_trade_executor is not None:
             raise Exception("TradeExecutor is already running")
 
+        asset_inventory = Decimal("0")
+        for market_info in self.market_info_list:
+            base_balance = market_info.market.get_balance(self.asset)
+            asset_inventory += base_balance
+
+        if asset_inventory >= self.amount:
+            self.logger().info(f"Asset inventory is sufficient {self.asset} balance: {asset_inventory}")
+            return
+        else:
+            self.amount -= asset_inventory
+
         exchanges_mid_price = {}
         exchanges_quote_balance = {}
         for market_info in self.market_info_list:
@@ -59,7 +71,7 @@ class AutoBuySellInventory:
         exchanges_mid_price = dict(sorted(exchanges_mid_price.items(), key=lambda item: item[1], reverse=False))  # ascending 0,1,2,3
 
         for market_info, _ in exchanges_mid_price.items():
-            if exchanges_quote_balance[market_info] > self.amount:
+            if exchanges_quote_balance[market_info] > self.amount * exchanges_mid_price[market_info]:
                 trade_config = TradeExecutorConfig(
                     market=ConnectorPair(connector_name=market_info.market.name, trading_pair=market_info.trading_pair),
                     order_amount=self.amount,
@@ -78,8 +90,8 @@ class AutoBuySellInventory:
             self._buy_trade_executor.stop_trade()
 
         for market_info in self.market_info_list:
-            base_balance = market_info.market.get_balance(market_info.base_asset)
-            if base_balance > self.amount_bought:
+            base_balance = market_info.market.get_balance(self.asset)
+            if base_balance >= self.amount_bought:
 
                 trade_config = TradeExecutorConfig(
                     market=ConnectorPair(connector_name=market_info.market.name, trading_pair=market_info.trading_pair),
