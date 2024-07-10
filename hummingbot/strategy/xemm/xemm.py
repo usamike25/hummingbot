@@ -185,7 +185,8 @@ class XEMMStrategy(StrategyPyBase):
     def set_variables(self):
         self.subscribe_to_orderbook_trade_event()
         if not self.auto_buy_sell_inventory_base_amount == Decimal(0):
-            self.auto_buy_sell_inventory = AutoBuySellInventory(strategy=self, market_info_list=self.all_trading_pair_tuples, amount=self.auto_buy_sell_inventory_base_amount)
+            asset = self.all_trading_pair_tuples[0].base_asset
+            self.auto_buy_sell_inventory = AutoBuySellInventory(strategy=self, market_info_list=self.all_trading_pair_tuples, amount=self.auto_buy_sell_inventory_base_amount, asset=asset)
             self.auto_buy_sell_inventory.buy_inventory()
 
         self.reporter = XEMMReporter(sb_order_tracker=self._sb_order_tracker,
@@ -1773,7 +1774,9 @@ class XEMMStrategy(StrategyPyBase):
         if not self.auto_buy_sell_inventory_base_amount == Decimal(0):
             self.auto_buy_sell_inventory.sell_inventory()
 
-        super().stop(clock)
+            while not self.auto_buy_sell_inventory.is_finished:
+                self.logger().info("Waiting for auto_buy_sell_inventory to finish...")
+                time.sleep(5)
 
         for exchange, token in self.markets.items():
             # stop indicator threads
@@ -1782,3 +1785,5 @@ class XEMMStrategy(StrategyPyBase):
                     self.volatility_indicator[exchange][pair].stop()
                 except KeyError:
                     pass
+
+        super().stop(clock)

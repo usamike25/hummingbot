@@ -31,6 +31,10 @@ class AutoBuySellInventory:
         self._buy_check_loop_task = None
         self._sell_check_loop_task = None
 
+    @property
+    def is_finished(self):
+        return self._buy_trade_executor is None and all(executor.trade_status == TradeExecutorStatus.COMPLETED for executor in self._sell_trade_executors)
+
     async def check_buy_trade_executor(self):
         while self._buy_trade_executor.trade_status in [TradeExecutorStatus.OPENING, TradeExecutorStatus.NOT_STARTED]:
             await asyncio.sleep(10)
